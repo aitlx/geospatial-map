@@ -1,14 +1,8 @@
 import  userService from "../models/userModel.js";
+import { handleResponse } from "../utils/handleResponse.js";
 
 const { createUserService, fetchAllUsersService, deleteUserService, fetchUserbyIdService, updateUserService } = userService;
-
-const handleResponse = (res, status, message, data = null) => {
-  res.status(status).json({
-    status,
-    message,
-    data,
-  });
-};
+ 
 
 export const createUser = async (req, res, next) => {
   const { roleID, firstname, lastname, birthday, gender, email, contactNumber, password } = req.body;

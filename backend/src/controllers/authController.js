@@ -1,5 +1,6 @@
 import userService from "../models/userModel.js";
 import bcrypt from 'bcryptjs';
+import jwt from "jsonwebtoken";
 
 
 //register endpoint
@@ -72,16 +73,36 @@ export const loginUser = async (req, res) => {
     return res.status(400).json({ err: "Email and password are required." });
 
   try {
-    const user = await userService.fetchUserByEmailService(email); // 
+    const user = await userService.fetchUserByEmailService(email);
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ err: "Invalid email or password." });
     }
 
+
+    const token = jwt.sign(
+      {
+        id: user.userid || user.id,
+        roleID: user.roleid || user.roleID,
+        email: user.email,
+      },
+      process.env.JWT_SECRET,  
+      { expiresIn: "7d" }
+    );
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite:  process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+      maxAge: 7 * 14 * 60 * 60 * 1000
+    });
+
+  
     res.status(200).json({
       message: "Login successful!",
+      token, 
       user: {
-        id: user.userid || user.id, 
+        id: user.userid || user.id,
         name: `${user.firstname} ${user.lastname}`,
         email: user.email,
         roleID: user.roleid || user.roleID,
@@ -92,3 +113,18 @@ export const loginUser = async (req, res) => {
     res.status(500).json({ err: "Internal server error." });
   }
 };
+
+export const logoutUser = async (req, res) => {
+  try {
+    // clearing jwt cookie
+    res.clearCookie ('token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite:  process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+    })
+
+  } catch (error) {
+    console.error("Logout error:", err);
+    res.status(500).json({ err: "Internal server error." });
+  }
+}
