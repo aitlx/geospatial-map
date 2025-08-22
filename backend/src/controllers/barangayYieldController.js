@@ -89,6 +89,12 @@ export const updateBarangayYield = async (req, res, next) => {
     const { yield_id } = req.params;
     const { barangay_id, crop_id, year, season, total_yield, total_area_planted_ha, yield_per_hectare } = req.body;
 
+    // Optional: validate required fields
+    if (!barangay_id || !crop_id || !year || !season || !total_yield || !total_area_planted_ha || !yield_per_hectare) {
+      return handleResponse(res, 400, "All fields are required");
+    }
+
+    // Call service to update the record
     const updated = await updateBarangayYieldService(
       yield_id,
       barangay_id,
@@ -100,24 +106,31 @@ export const updateBarangayYield = async (req, res, next) => {
       yield_per_hectare
     );
 
-    if (!updated) return handleResponse(res, 404, "Yield record not found");
 
+    if (!updated) {
+      return handleResponse(res, 404, "Yield record not found");
+    }
+
+    // Return success response
     return handleResponse(res, 200, "Yield record updated successfully", updated);
+
   } catch (err) {
+    console.error("Error updating yield:", err); 
     next(err);
   }
 };
 
+
 // deleting barangay yield record
 export const deleteBarangayYield = async (req, res, next) => {
   try {
-    const { yield_id } = req.params;
+    const yieldRecord = await deleteBarangayYieldService(req.params.id);
 
-    const deleted = await deleteBarangayYieldService(yield_id);
+    if (!yieldRecord) {
+      return handleResponse(res, 404, "Yield record not found");
+    }
 
-    if (!deleted) return handleResponse(res, 404, "Yield record not found");
-
-    return handleResponse(res, 200, "Yield record deleted successfully", deleted);
+    return handleResponse(res, 200, "Yield record deleted successfully", yieldRecord);
   } catch (err) {
     next(err);
   }
