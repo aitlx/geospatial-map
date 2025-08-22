@@ -81,22 +81,25 @@ export const fetchBarangayYieldById = async (req, res, next) => {
   }
 };
 
-
-
-// updating barangay yield record
+//update barangay yield record
 export const updateBarangayYield = async (req, res, next) => {
-  try {
-    const { yield_id } = req.params;
-    const { barangay_id, crop_id, year, season, total_yield, total_area_planted_ha, yield_per_hectare } = req.body;
+  const { barangay_id, crop_id, year, season, total_yield, total_area_planted_ha, yield_per_hectare } = req.body;
 
-    // Optional: validate required fields
-    if (!barangay_id || !crop_id || !year || !season || !total_yield || !total_area_planted_ha || !yield_per_hectare) {
-      return handleResponse(res, 400, "All fields are required");
+  try {
+    if (
+      !barangay_id &&
+      !crop_id &&
+      !year &&
+      !season &&
+      !total_yield &&
+      !total_area_planted_ha &&
+      !yield_per_hectare
+    ) {
+      return handleResponse(res, 400, "At least one field must be provided to update");
     }
 
-    // Call service to update the record
-    const updated = await updateBarangayYieldService(
-      yield_id,
+    const updatedYield = await updateBarangayYieldService(
+      req.params.id,
       barangay_id,
       crop_id,
       year,
@@ -106,19 +109,16 @@ export const updateBarangayYield = async (req, res, next) => {
       yield_per_hectare
     );
 
-
-    if (!updated) {
+    if (!updatedYield) {
       return handleResponse(res, 404, "Yield record not found");
     }
 
-    // Return success response
-    return handleResponse(res, 200, "Yield record updated successfully", updated);
-
+    return handleResponse(res, 200, "Yield record updated successfully", updatedYield);
   } catch (err) {
-    console.error("Error updating yield:", err); 
     next(err);
   }
 };
+
 
 
 // deleting barangay yield record
