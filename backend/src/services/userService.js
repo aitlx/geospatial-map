@@ -1,4 +1,5 @@
 import pool from "../config/db.js";
+import { hashPassword } from "../utils/hashPassword.js";
 
 // Fetch all users
 const fetchAllUsersService = async () => {
@@ -7,8 +8,8 @@ const fetchAllUsersService = async () => {
 };
 
 // Fetch a single user by ID
-const fetchUserbyIdService = async (id) => {
-  const result = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
+const fetchUserbyIdService = async (userid) => {
+  const result = await pool.query("SELECT * FROM users WHERE userid = $1", [userid]);
   return result.rows[0];
 };
 
@@ -19,28 +20,29 @@ const fetchUserByEmailService = async (email) => {
 };
 
 // create user
-const createUserService = async (
+export const createUserService = async (
   roleID,
-  firstname,
-  lastname,
+  firstName,
+  lastName,
   birthday,
   gender,
   email,
   contactNumber,
-  password
+  hashedPassword
 ) => {
+
   const result = await pool.query(
-    `INSERT INTO users 
-      (roleID, firstname, lastname, birthday, gender, email, contactNumber, password) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-     RETURNING *`,
-    [roleID, firstname, lastname, birthday, gender, email, contactNumber, password]
+    `INSERT INTO users (roleid, firstname, lastname, birthday, gender, email, contactnumber, password, createdat)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+     RETURNING userid, roleid, firstname, lastname, email`,
+    [roleID, firstName, lastName, birthday, gender, email, contactNumber, hashedPassword]
   );
   return result.rows[0];
 };
 
+
 // update user
-const updateUserService = async (
+export const updateUserService = async (
   userID,
   firstname,
   lastname,
@@ -48,8 +50,15 @@ const updateUserService = async (
   gender,
   email,
   contactNumber,
-  password
+  plainPassword, 
+  profileimg
 ) => {
+  // hash password only if provided
+  let hashedPassword = null;
+  if (plainPassword) {
+    hashedPassword = await hashPassword(plainPassword);
+  }
+
   const result = await pool.query(
     `UPDATE users SET 
       firstname = $1,
@@ -57,14 +66,17 @@ const updateUserService = async (
       birthday = $3,
       gender = $4,
       email = $5,
-      contactNumber = $6,
-      password = $7
-    WHERE userID = $8
-    RETURNING *`,
-    [firstname, lastname, birthday, gender, email, contactNumber, password, userID]
+      contactnumber = $6,
+      password = COALESCE($7, password),
+      profileimg = COALESCE($8, profileimg)
+    WHERE userid = $9
+    RETURNING userid, roleid, firstname, lastname, email, profileimg`,
+    [firstname, lastname, birthday, gender, email, contactNumber, hashedPassword, profileimg, userID]
   );
+
   return result.rows[0];
 };
+
 
 // delete user
 const deleteUserService = async (userID) => {

@@ -1,5 +1,4 @@
 import pool from "../config/db.js";
-
 //  fetch all barangay yield records with names
 export const fetchBarangayYieldsService = async () => {
   const result = await pool.query(`
@@ -10,10 +9,10 @@ export const fetchBarangayYieldsService = async () => {
       by.year, 
       by.season, 
       by.total_yield, 
-      by.total_area_planted_ha, 
+      by.total_area_planted_ha AS area, 
       by.yield_per_hectare,
-      c.crop_name,
-      b.barangay_name
+      c.crop_name AS crop,
+      b.adm3_en AS barangay
     FROM barangay_yields by
     JOIN crops c ON by.crop_id = c.crop_id
     JOIN barangays b ON by.barangay_id = b.barangay_id
@@ -25,7 +24,10 @@ export const fetchBarangayYieldsService = async () => {
 // get barangay yield records by id
 const fetchBarangayYieldByIdService = async (yield_id) => {
   const result = await pool.query(
-    `SELECT by.*, c.crop_name, b.barangay_name
+    `SELECT 
+       by.*, 
+       c.crop_name AS crop, 
+       b.adm3_en AS barangay
      FROM barangay_yields by
      JOIN crops c ON by.crop_id = c.crop_id
      JOIN barangays b ON by.barangay_id = b.barangay_id
@@ -35,7 +37,8 @@ const fetchBarangayYieldByIdService = async (yield_id) => {
   return result.rows[0];
 };
 
-// add barangay yield records service
+
+/// add barangay yield records service
 const addBarangayYieldService = async (
   barangay_id,
   crop_id,
@@ -44,8 +47,9 @@ const addBarangayYieldService = async (
   total_yield,
   total_area_planted_ha,
   yield_per_hectare,
-  recorded_by_user_id 
+  recorded_by_user_id
 ) => {
+  // Insert new barangay yield record with status = pending
   const result = await pool.query(
     `INSERT INTO barangay_yields 
       (barangay_id, crop_id, year, season, total_yield, total_area_planted_ha, yield_per_hectare, recorded_by_user_id, status) 
@@ -59,12 +63,22 @@ const addBarangayYieldService = async (
       total_yield,
       total_area_planted_ha,
       yield_per_hectare,
-      recorded_by_user_id 
+      recorded_by_user_id
     ]
   );
 
-  return result.rows[0];
+  const newYield = result.rows[0];
+
+  // Insert corresponding approval record (pending)
+  await pool.query(
+    `INSERT INTO approvals (record_type, record_id, status, submitted_by, performed_by, reason)
+     VALUES ($1, $2, 'pending', $3, NULL, 'Awaiting review')`,
+    ['barangay_yields', newYield.yield_id, recorded_by_user_id]
+  );
+
+  return newYield;
 };
+
 
 // update barangay yield record service
 const updateBarangayYieldService = async (

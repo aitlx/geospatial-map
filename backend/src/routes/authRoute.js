@@ -1,18 +1,21 @@
 // routes/authRoute.js
 import express from "express";
 import cors from "cors";
-import { registerUser, loginUser, logoutUser } from "../controllers/authController.js";
+import { registerValidation, loginValidation } from "../validators/authValidator.js";
+import { registerUser, loginUser, logoutUser, forgotPassword, verifyResetCode, resetPassword } from "../controllers/authController.js";
+import { verifyEmailWithCode, sendVerificationCode } from "../controllers/verifyEmailController.js";
 
 const router = express.Router();
 
-// middleware
-router.use(cors({
-  credentials: true,
-  origin: "http://localhost:5173"
-}));
-
-router.post('/register', registerUser);
-router.post('/login', loginUser);
+router.post("/register", registerValidation, registerUser);
+router.post("/login", loginValidation, loginUser);
 router.post("/logout", logoutUser);
+router.post("/send-code", sendVerificationCode);
+router.patch("/verify-code", verifyEmailWithCode);
+
+router.post("/forgot-password", forgotPassword);
+router.patch("/verify-reset-code", verifyResetCode);
+router.patch("/reset-password", resetPassword);
+
 
 export default router;

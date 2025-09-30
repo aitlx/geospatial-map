@@ -1,33 +1,39 @@
-import  barangayYieldService from "../models/barangayYieldModel.js";
+import barangayYieldService from "../services/barangayYieldService.js";
 import { handleResponse } from "../utils/handleResponse.js";
+import { logService } from "../services/logService.js";
 
-const { addBarangayYieldService, fetchBarangayYieldsService, deleteBarangayYieldService, fetchBarangayYieldByIdService, updateBarangayYieldService } = barangayYieldService;
+const {
+  addBarangayYieldService,
+  fetchBarangayYieldsService,
+  deleteBarangayYieldService,
+  fetchBarangayYieldByIdService,
+  updateBarangayYieldService
+} = barangayYieldService;
 
-
-//adding barangay yield records (this includes the yields and their seasons) 
+// Add barangay yield record
 export const addBarangayYield = async (req, res, next) => {
-  const { 
-    barangay_id, 
-    crop_id, 
-    year, 
-    season, 
-    total_yield, 
-    total_area_planted_ha, 
-    yield_per_hectare,
-    recorded_by_user_id 
+  const {
+    barangay_id,
+    crop_id,
+    year,
+    season,
+    total_yield,
+    total_area_planted_ha,
+    yield_per_hectare
   } = req.body;
 
+  const recordedByUserId = req.user?.id;
+
   if (
-    !barangay_id || 
-    !crop_id || 
-    !year || 
-    !season || 
-    !total_yield || 
-    !total_area_planted_ha || 
-    !yield_per_hectare || 
-    !recorded_by_user_id
+    !barangay_id ||
+    !crop_id ||
+    !year ||
+    !season ||
+    !total_yield ||
+    !total_area_planted_ha ||
+    !yield_per_hectare
   ) {
-    return res.status(400).json({ error: "All fields are required (including recorded_by_user_id)" });
+    return handleResponse(res, 400, false, "All fields are required");
   }
 
   try {
@@ -39,13 +45,23 @@ export const addBarangayYield = async (req, res, next) => {
       total_yield,
       total_area_planted_ha,
       yield_per_hectare,
-      recorded_by_user_id
+      recordedByUserId
     );
 
+    await logService.add({
+      userId: req.user.id,
+      roleId: req.user.roleID,
+      action: "ADD_YIELD",
+      targetTable: "barangay_yields",
+      targetId: newYieldRecord.yield_id,
+      details: newYieldRecord
+    });
+
     return handleResponse(
-      res, 
-      201, 
-      "Yield record added successfully (status: pending)", 
+      res,
+      201,
+      true,
+      "Yield record added successfully (status: pending)",
       newYieldRecord
     );
   } catch (err) {
@@ -53,37 +69,43 @@ export const addBarangayYield = async (req, res, next) => {
   }
 };
 
-
-
-// fetching all yields from the barangay_yields records table
+// Fetch all barangay yield records
 export const fetchBarangayYields = async (req, res, next) => {
   try {
     const yields = await fetchBarangayYieldsService();
-    return handleResponse(res, 200, "Fetched successfully", yields);
+    return handleResponse(res, 200, true, yields, "Barangay yields fetched successfully");
   } catch (err) {
     next(err);
   }
 };
 
-// fetching barangay yield records by ID
+
+// Fetch barangay yield record by ID
 export const fetchBarangayYieldById = async (req, res, next) => {
   try {
-    const { id } = req.params; // /yields/:id
-    const yieldRecord = await fetchBarangayYieldByIdService(id);
+    const yieldRecord = await fetchBarangayYieldByIdService(req.params.id);
 
     if (!yieldRecord) {
-      return handleResponse(res, 404, "Yield record not found");
+      return handleResponse(res, 404, false, "Yield record not found");
     }
 
-    return handleResponse(res, 200, "Fetched successfully", yieldRecord);
+    return handleResponse(res, 200, true, "Barangay yield fetched successfully", yieldRecord);
   } catch (err) {
     next(err);
   }
 };
 
-//update barangay yield record
+// Update barangay yield record
 export const updateBarangayYield = async (req, res, next) => {
-  const { barangay_id, crop_id, year, season, total_yield, total_area_planted_ha, yield_per_hectare } = req.body;
+  const {
+    barangay_id,
+    crop_id,
+    year,
+    season,
+    total_yield,
+    total_area_planted_ha,
+    yield_per_hectare
+  } = req.body;
 
   try {
     if (
@@ -95,7 +117,7 @@ export const updateBarangayYield = async (req, res, next) => {
       !total_area_planted_ha &&
       !yield_per_hectare
     ) {
-      return handleResponse(res, 400, "At least one field must be provided to update");
+      return handleResponse(res, 400, false, "At least one field must be provided to update");
     }
 
     const updatedYield = await updateBarangayYieldService(
@@ -110,27 +132,43 @@ export const updateBarangayYield = async (req, res, next) => {
     );
 
     if (!updatedYield) {
-      return handleResponse(res, 404, "Yield record not found");
+      return handleResponse(res, 404, false, "Yield record not found");
     }
 
-    return handleResponse(res, 200, "Yield record updated successfully", updatedYield);
+    await logService.add({
+      userId: req.user.id,
+      roleId: req.user.roleID,
+      action: "UPDATE_YIELD",
+      targetTable: "barangay_yields",
+      targetId: updatedYield.yield_id,
+      details: updatedYield
+    });
+
+    return handleResponse(res, 200, true, "Yield record updated successfully", updatedYield);
   } catch (err) {
     next(err);
   }
 };
 
-
-
-// deleting barangay yield record
+// Delete barangay yield record
 export const deleteBarangayYield = async (req, res, next) => {
   try {
     const yieldRecord = await deleteBarangayYieldService(req.params.id);
 
     if (!yieldRecord) {
-      return handleResponse(res, 404, "Yield record not found");
+      return handleResponse(res, 404, false, "Yield record not found");
     }
 
-    return handleResponse(res, 200, "Yield record deleted successfully", yieldRecord);
+    await logService.add({
+      userId: req.user.id,
+      roleId: req.user.roleID,
+      action: "DELETE_YIELD",
+      targetTable: "barangay_yields",
+      targetId: yieldRecord.yield_id,
+      details: yieldRecord
+    });
+
+    return handleResponse(res, 200, true, "Yield record deleted successfully", yieldRecord);
   } catch (err) {
     next(err);
   }

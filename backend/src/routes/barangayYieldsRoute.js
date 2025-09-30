@@ -6,13 +6,14 @@ import {
   updateBarangayYield,
   deleteBarangayYield
 } from "../controllers/barangayYieldController.js";
+import { authenticate } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.post("/", addBarangayYield);
-router.get("/", fetchBarangayYields);
-router.get("/:id", fetchBarangayYieldById);
-router.put("/:id", updateBarangayYield);
-router.delete("/:id", deleteBarangayYield);
+router.post("/", authenticate, addBarangayYield);
+router.get("/", authenticate, fetchBarangayYields);
+router.get("/:id", authenticate, fetchBarangayYieldById);
+router.put("/:id", authenticate, updateBarangayYield);
+router.delete("/:id", authenticate, deleteBarangayYield);
 
 export default router;

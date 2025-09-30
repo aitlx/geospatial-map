@@ -1,48 +1,38 @@
-import userService from "../models/userModel.js";
-import bcrypt from 'bcryptjs';
+import userService from "../services/userService.js";
+import pool from "../config/db.js";
 import jwt from "jsonwebtoken";
+import { sendEmail } from "../utils/sendEmail.js";
+import { validationResult } from "express-validator";
+import { handleResponse } from "../utils/handleResponse.js";
+import { sendVerificationCode } from "../services/emailVerificationService.js";
+import { hashPassword, comparePassword } from "../utils/hashPassword.js";
+import { generateCode } from "../utils/generateCode.js";
+import { logService } from "../services/logService.js";
 
 
-//register endpoint
-export const registerUser = async (req, res, next) => {
-  const {
-    firstName,
-    lastName,
-    birthday,
-    gender,
-    email,
-    contactNumber,
-    password,
-    confirmPassword,
-  } = req.body;
+// =========== auth & email verification ===========
 
-  const roleID = 3;
-
-  // Validate input fields
-  if (!firstName || !lastName || !birthday || !gender || !email || !contactNumber || !password || !confirmPassword) {
-    return res.status(400).json({ err: "All fields are required." });
+// register endpoint
+export const registerUser = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return handleResponse(res, 400, "validation failed", errors.array());
   }
 
-  if (password.length < 8) {
-    return res.status(400).json({ err: "Password must be at least 8 characters long." });
-  }
-
-  if (password !== confirmPassword) {
-    return res.status(400).json({ err: "Passwords do not match." });
-  }
+  const { firstName, lastName, birthday, gender, email, contactNumber, password, roleID } = req.body;
 
   try {
-    // check if email already exists
-    const existingUser = await userService.fetchUserByEmailService(email);
-    if (existingUser && existingUser.length > 0) {
-      return res.status(409).json({ err: "Email is already taken." });
+    if (![1, 2, 3].includes(roleID)) {
+      return handleResponse(res, 400, "invalid role id");
     }
 
-    // password hashing
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const existingUser = await userService.fetchUserByEmailService(email);
+    if (existingUser) {
+      return handleResponse(res, 409, "email is already taken");
+    }
 
-    // create new user with hashed password
+    const hashedPassword = await hashPassword(password);
+
     const newUser = await userService.createUserService(
       roleID,
       firstName,
@@ -51,56 +41,86 @@ export const registerUser = async (req, res, next) => {
       gender,
       email,
       contactNumber,
-      hashedPassword // store the hashed password instead of plain text on the db
+      hashedPassword
     );
 
-    return res.status(201).json({
-      message: "User account created successfully!",
-      user: newUser,
+    if (!newUser) {
+      return handleResponse(res, 500, "failed to create user");
+    }
+
+    await sendVerificationCode(newUser).catch(err =>
+      console.error("verification code send failed:", err.message)
+    );
+
+    // log registration
+    await logService.add({
+      userId: newUser.userid,
+      roleId: newUser.roleid,
+      action: "REGISTER_USER",
+      targetTable: "users",
+      targetId: newUser.userid,
+      details: newUser
+    });
+
+    return handleResponse(res, 201, "user account created successfully! please verify your email.", {
+      id: newUser.userid,
+      firstName: newUser.firstname,
+      lastName: newUser.lastname,
+      email: newUser.email,
+      roleID: newUser.roleid,
     });
   } catch (err) {
-    console.error("Error during registration:", err);
-    return res.status(500).json({ err: "Internal server error." });
+    console.error("error during registration:", err);
+    return handleResponse(res, 500, "internal server error");
   }
 };
 
-
 // login endpoint
 export const loginUser = async (req, res) => {
-  const { email, password } = req.body;
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return handleResponse(res, 400, "validation failed", errors.array());
+  }
 
-  if (!email || !password)
-    return res.status(400).json({ err: "Email and password are required." });
+  const { email, password } = req.body;
 
   try {
     const user = await userService.fetchUserByEmailService(email);
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ err: "Invalid email or password." });
+    if (!user || !(await comparePassword(password, user.password))) {
+      return handleResponse(res, 401, "invalid email or password");
     }
-
 
     const token = jwt.sign(
       {
         id: user.userid || user.id,
         roleID: user.roleid || user.roleID,
         email: user.email,
+        verified: user.is_verified,
       },
-      process.env.JWT_SECRET,  
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    res.cookie('token', token, {
+    res.cookie("token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite:  process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-      maxAge: 7 * 14 * 60 * 60 * 1000
+      secure: process.env.NODE_ENV === "production",
+      ssameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-  
-    res.status(200).json({
-      message: "Login successful!",
-      token, 
+    // log login
+    await logService.add({
+      userId: user.userid,
+      roleId: user.roleid,
+      action: "LOGIN_USER",
+      targetTable: "users",
+      targetId: user.userid,
+      details: { email: user.email }
+    });
+
+    return handleResponse(res, 200, "login successful!", {
+      token,
       user: {
         id: user.userid || user.id,
         name: `${user.firstname} ${user.lastname}`,
@@ -109,22 +129,195 @@ export const loginUser = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({ err: "Internal server error." });
+    console.error("login error:", err);
+    return handleResponse(res, 500, "internal server error");
   }
 };
 
+// logout endpoint
 export const logoutUser = async (req, res) => {
   try {
-    // clearing jwt cookie
-    res.clearCookie ('token', {
+    // clear jwt cookie
+    res.clearCookie("token", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite:  process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-    })
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/"
+    });
 
-  } catch (error) {
-    console.error("Logout error:", err);
-    res.status(500).json({ err: "Internal server error." });
+    // only log if user exists (authenticated)
+    if (req.user?.id) {
+      await logService.add({
+        userId: req.user.id,
+        roleId: req.user.roleID,
+        action: "LOGOUT_USER",
+        targetTable: "users",
+        targetId: req.user.id,
+        details: { message: "user logged out successfully" },
+      });
+    }
+
+    return handleResponse(res, 200, "logout successful");
+  } catch (err) {
+    console.error("logout error:", err);
+    return handleResponse(res, 500, "internal server error");
   }
-}
+};
+
+
+// =========== password reset ===========
+
+// request password reset
+export const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await userService.fetchUserByEmailService(email);
+    if (!user) {
+      return handleResponse(res, 404, "no account found with this email");
+    }
+
+    const code = generateCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await pool.query(
+      `insert into password_reset_codes (user_id, code, expires_at)
+       values ($1, $2, $3)`,
+      [user.userid, code, expiresAt]
+    );
+
+    const html = `
+      <p>hello <b>${user.firstname}</b>,</p>
+      <p>you requested a password reset.</p>
+      <p>your verification code is: <b>${code}</b></p>
+      <p>this code will expire in 10 minutes.</p>
+    `;
+
+    await sendEmail({
+      to: user.email,
+      subject: "password reset code",
+      html,
+    });
+
+    // log forgot password
+    await logService.add({
+      userId: user.userid,
+      roleId: user.roleid,
+      action: "FORGOT_PASSWORD",
+      targetTable: "users",
+      targetId: user.userid,
+      details: { email: user.email }
+    });
+
+    return handleResponse(res, 200, "password reset code sent to your email");
+  } catch (err) {
+    console.error("forgot password error:", err.message);
+    return handleResponse(res, 500, "internal server error");
+  }
+};
+
+// verify reset code
+export const verifyResetCode = async (req, res) => {
+  const { email, code } = req.body;
+
+  try {
+    const user = await userService.fetchUserByEmailService(email);
+    if (!user) {
+      return handleResponse(res, 404, "user not found");
+    }
+
+    const result = await pool.query(
+      `select * from password_reset_codes 
+       where user_id = $1 and code = $2
+       order by created_at desc limit 1`,
+      [user.userid, code]
+    );
+
+    if (!result.rows.length) {
+      return handleResponse(res, 400, "invalid or expired code");
+    }
+
+    const record = result.rows[0];
+
+    if (new Date(record.expires_at) < new Date()) {
+      return handleResponse(res, 400, "code expired");
+    }
+
+    // log verification
+    await logService.add({
+      userId: user.userid,
+      roleId: user.roleid,
+      action: "VERIFY_RESET_CODE",
+      targetTable: "password_reset_codes",
+      targetId: record.id,
+      details: { code }
+    });
+
+    return handleResponse(res, 200, "code verified successfully");
+  } catch (err) {
+    console.error("verify reset code error:", err);
+    return handleResponse(res, 500, "internal server error");
+  }
+};
+
+// reset password
+export const resetPassword = async (req, res) => {
+  const { email, code, newPassword } = req.body;
+
+  try {
+    const userResult = await pool.query(
+      `select userid from users where email=$1`,
+      [email]
+    );
+
+    if (!userResult.rows.length) {
+      return handleResponse(res, 404, "user not found");
+    }
+
+    const userId = userResult.rows[0].userid;
+
+    const codeResult = await pool.query(
+      `select * from password_reset_codes
+       where user_id = $1 and code = $2 
+       order by created_at desc limit 1`,
+      [userId, code]
+    );
+
+    if (!codeResult.rows.length) {
+      return handleResponse(res, 400, "invalid or expired code");
+    }
+
+    const record = codeResult.rows[0];
+
+    if (new Date(record.expires_at) < new Date()) {
+      return handleResponse(res, 400, "code has expired");
+    }
+
+    const hashedPassword = await hashPassword(newPassword);
+
+    await pool.query(
+      `update users set password = $1 where userid = $2`,
+      [hashedPassword, userId]
+    );
+
+    await pool.query(
+      `delete from password_reset_codes where id = $1`,
+      [record.id]
+    );
+
+    // log password reset
+    await logService.add({
+      userId: userId,
+      roleId: null,
+      action: "RESET_PASSWORD",
+      targetTable: "users",
+      targetId: userId,
+      details: { message: "password reset successful" }
+    });
+
+    return handleResponse(res, 200, "password has been reset successfully");
+  } catch (err) {
+    console.error("reset password error:", err);
+    return handleResponse(res, 500, "internal server error");
+  }
+};

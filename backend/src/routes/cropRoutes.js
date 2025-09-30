@@ -4,13 +4,15 @@ import {
   fetchAllCrops,
   fetchCropById,
   deleteCrop,
-  updateCrop
+  updateCrop,
+  fetchCropsDropdown
 } from "../controllers/cropsController.js"; 
 
 const router = express.Router();
 
 router.post("/", addCrop);
 router.get("/", fetchAllCrops);
+router.get("/dropdown", fetchCropsDropdown);
 router.get("/:id", fetchCropById);
 router.delete("/:id", deleteCrop);
 router.put("/:id", updateCrop);
