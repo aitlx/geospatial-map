@@ -1,16 +1,19 @@
-import { RECORD_CONFIG } from "../utils/approvalUtils.js";
+import { RECORD_CONFIG, normalizeRecordTypeKey } from "../utils/approvalUtils.js";
 import { handleResponse } from "../utils/handleResponse.js";
 
 export const validateRecordType = (req, res, next) => {
-  const { recordType } = req.params;
+  const normalizedType = normalizeRecordTypeKey(req.params?.recordType);
 
-  if (!RECORD_CONFIG[recordType]) {
+  if (!normalizedType) {
     return handleResponse(
       res,
       400,
-      `Invalid record type: ${recordType}. Must be one of: ${Object.keys(RECORD_CONFIG).join(", ")}`
+      `Invalid record type: ${req.params?.recordType}. Must be one of: ${Object.keys(RECORD_CONFIG).join(", ")}`
     );
   }
+
+  req.params.recordType = normalizedType;
+  req.recordType = normalizedType;
 
   next();
 };

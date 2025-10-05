@@ -16,11 +16,6 @@ export const authenticate = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // check if email is verified before granting access
-    if (!decoded.verified) {
-      return handleResponse(res, 403, "forbidden: please verify your email first");
-    }
-
     req.user = decoded; // { id, roleID, email, verified }
     next();
   } catch (err) {
@@ -30,10 +25,17 @@ export const authenticate = (req, res, next) => {
 
 // authorize by role(s)
 export const authorizeRoles = (...allowedRoles) => {
+  const normalizedRoles = allowedRoles
+    .map((role) => Number.parseInt(role, 10))
+    .filter((role) => Number.isInteger(role));
+
   return (req, res, next) => {
-    if (!allowedRoles.includes(req.user.roleID)) {
+    const actorRole = Number.parseInt(req.user?.roleID, 10);
+
+    if (!Number.isInteger(actorRole) || !normalizedRoles.includes(actorRole)) {
       return handleResponse(res, 403, "forbidden: insufficient permissions");
     }
+
     next();
   };
 };

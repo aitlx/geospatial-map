@@ -5,8 +5,11 @@ import { ROLES } from '../config/roles.js';
 
 const router = express.Router();
 
-// technician can only view their own logs
+// technician shortcut
 router.get('/my-logs', authenticate, authorizeRoles(ROLES.TECHNICIAN), getMyLogs);
+
+// any authenticated user can fetch their own activity feed
+router.get('/self', authenticate, getMyLogs);
 
 // admin and superadmin can view all logs
 router.get('/', authenticate, authorizeRoles(ROLES.ADMIN, ROLES.SUPERADMIN), getLogs);

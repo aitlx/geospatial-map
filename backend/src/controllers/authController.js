@@ -5,10 +5,17 @@ import { sendEmail } from "../utils/sendEmail.js";
 import { validationResult } from "express-validator";
 import { handleResponse } from "../utils/handleResponse.js";
 import { sendVerificationCode } from "../services/emailVerificationService.js";
+import crypto from "crypto";
 import { hashPassword, comparePassword } from "../utils/hashPassword.js";
-import { generateCode } from "../utils/generateCode.js";
 import { logService } from "../services/logService.js";
+import { ROLES } from "../config/roles.js";
+import { maskEmail } from "../utils/maskEmail.js";
 
+const generateResetCode = (length = 6) => {
+  const max = 10 ** length;
+  const min = 10 ** (length - 1);
+  return crypto.randomInt(min, max).toString();
+};
 
 // =========== auth & email verification ===========
 
@@ -59,7 +66,11 @@ export const registerUser = async (req, res) => {
       action: "REGISTER_USER",
       targetTable: "users",
       targetId: newUser.userid,
-      details: newUser
+      details: {
+        summary: "New account registered",
+        roleId: newUser.roleid,
+        emailMasked: maskEmail(newUser.email),
+      },
     });
 
     return handleResponse(res, 201, "user account created successfully! please verify your email.", {
@@ -105,7 +116,7 @@ export const loginUser = async (req, res) => {
     res.cookie("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      ssameSite: "lax",
+      sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -116,7 +127,11 @@ export const loginUser = async (req, res) => {
       action: "LOGIN_USER",
       targetTable: "users",
       targetId: user.userid,
-      details: { email: user.email }
+      details: {
+        summary: "User signed in",
+        emailMasked: maskEmail(user.email),
+        verified: Boolean(user.is_verified),
+      },
     });
 
     return handleResponse(res, 200, "login successful!", {
@@ -134,6 +149,72 @@ export const loginUser = async (req, res) => {
   }
 };
 
+export const loginAdmin = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return handleResponse(res, 400, "validation failed", errors.array());
+  }
+
+  const { email, password } = req.body;
+
+  try {
+    const user = await userService.fetchUserByEmailService(email);
+
+    if (!user || !(await comparePassword(password, user.password))) {
+      return handleResponse(res, 401, "invalid email or password");
+    }
+
+    const roleId = user.roleid || user.roleID;
+    if (![ROLES.ADMIN, ROLES.SUPERADMIN].includes(roleId)) {
+      return handleResponse(res, 403, "account does not have administrative access");
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.userid || user.id,
+        roleID: roleId,
+        email: user.email,
+        verified: user.is_verified,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    await logService.add({
+      userId: user.userid,
+      roleId,
+      action: "LOGIN_ADMIN",
+      targetTable: "users",
+      targetId: user.userid,
+      details: {
+        summary: "Administrator signed in",
+        emailMasked: maskEmail(user.email),
+      },
+    });
+
+    return handleResponse(res, 200, "admin login successful", {
+      token,
+      user: {
+        id: user.userid || user.id,
+        name: `${user.firstname} ${user.lastname}`.trim(),
+        email: user.email,
+        roleID: roleId,
+        role: roleId === ROLES.SUPERADMIN ? "superadmin" : "admin",
+      },
+    });
+  } catch (err) {
+    console.error("admin login error:", err);
+    return handleResponse(res, 500, "internal server error");
+  }
+};
+
 // logout endpoint
 export const logoutUser = async (req, res) => {
   try {
@@ -145,15 +226,34 @@ export const logoutUser = async (req, res) => {
       path: "/"
     });
 
-    // only log if user exists (authenticated)
-    if (req.user?.id) {
+    let actor = req.user;
+
+    if (!actor?.id) {
+      const authHeader = req.headers.authorization;
+      const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
+      const cookieToken = req.cookies?.token;
+      const token = bearerToken || cookieToken;
+
+      if (token) {
+        try {
+          actor = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (verifyError) {
+          const decoded = jwt.decode(token);
+          if (decoded && typeof decoded === "object" && decoded !== null) {
+            actor = decoded;
+          }
+        }
+      }
+    }
+
+    if (actor?.id) {
       await logService.add({
-        userId: req.user.id,
-        roleId: req.user.roleID,
+        userId: actor.id,
+        roleId: actor.roleID,
         action: "LOGOUT_USER",
         targetTable: "users",
-        targetId: req.user.id,
-        details: { message: "user logged out successfully" },
+        targetId: actor.id,
+        details: { summary: "Session ended" },
       });
     }
 
@@ -177,7 +277,7 @@ export const forgotPassword = async (req, res) => {
       return handleResponse(res, 404, "no account found with this email");
     }
 
-    const code = generateCode();
+  const code = generateResetCode();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await pool.query(
@@ -206,7 +306,10 @@ export const forgotPassword = async (req, res) => {
       action: "FORGOT_PASSWORD",
       targetTable: "users",
       targetId: user.userid,
-      details: { email: user.email }
+      details: {
+        summary: "Password reset requested",
+        emailMasked: maskEmail(user.email),
+      },
     });
 
     return handleResponse(res, 200, "password reset code sent to your email");
@@ -250,7 +353,9 @@ export const verifyResetCode = async (req, res) => {
       action: "VERIFY_RESET_CODE",
       targetTable: "password_reset_codes",
       targetId: record.id,
-      details: { code }
+      details: {
+        summary: "Reset code confirmed",
+      },
     });
 
     return handleResponse(res, 200, "code verified successfully");
@@ -312,7 +417,7 @@ export const resetPassword = async (req, res) => {
       action: "RESET_PASSWORD",
       targetTable: "users",
       targetId: userId,
-      details: { message: "password reset successful" }
+      details: { summary: "Password reset completed" },
     });
 
     return handleResponse(res, 200, "password has been reset successfully");

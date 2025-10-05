@@ -1,11 +1,11 @@
-import userService from './userService.js';
-import fs from 'fs';
-import path from 'path';
+import userService from "./userService.js";
+import fs from "fs";
+import path from "path";
 
 //this updates user profile, including personal info, password and profile image
 
 export const updateUserProfile = async (userId, data, file) => {
-    const { firstName, lastName , birthday, gender, email, contactNumber, password } = data;
+    const { firstName, lastName , birthday, gender, email, contactNumber, bio, password } = data;
 
     //get current user first 
 
@@ -16,6 +16,7 @@ export const updateUserProfile = async (userId, data, file) => {
     }
 
     let profileImg = user.profileimg; // keep existing image if no new file
+    const nextBio = bio !== undefined ? (bio ?? "").toString().trim() : user.bio;
     if (file) {
         //delete old image if exists
         if (profileImg && fs.existsSync(path.join('uploads', profileImg))) {
@@ -34,9 +35,12 @@ export const updateUserProfile = async (userId, data, file) => {
         gender ?? user.gender,
         email ?? user.email,
         contactNumber ?? user.contactnumber,
+        nextBio,
         password ?? null, // only update if provided
-        profileImg
+        profileImg,
+        null
     );
 
     return updatedUser;
 };
+

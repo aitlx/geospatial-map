@@ -5,8 +5,8 @@ import { authenticate } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.post('/barangay-crop-prices', authenticate, addCropPrice);
-router.get('/barangay-crop-prices', authenticate, fetchCropPrices);
-router.get('/barangay-crop-prices/:id', authenticate, fetchCropPriceById);
+router.get('/barangay-crop-prices', fetchCropPrices);
+router.get('/barangay-crop-prices/:id', fetchCropPriceById);
 router.put('/barangay-crop-prices/:id', authenticate, updateCropPrice);
 router.delete('/barangay-crop-prices/:id', authenticate, deleteCropPrice);
 

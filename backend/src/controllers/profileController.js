@@ -20,8 +20,9 @@ export const updateProfile = async (req, res) => {
       targetTable: "users",
       targetId: req.user?.id || null,
       details: {
-        updatedFields: Object.keys(req.body), // only log which fields were attempted to update
-        fileUploaded: !!req.file,
+        summary: "Profile updated",
+        updatedFields: Object.keys(req.body ?? {}), // only log which fields were attempted to update
+        fileUploaded: Boolean(req.file),
       },
     });
 
@@ -34,3 +35,4 @@ export const updateProfile = async (req, res) => {
     return handleResponse(res, 500, "internal server error");
   }
 };
+
