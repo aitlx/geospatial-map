@@ -9,8 +9,6 @@ import AdminAuthPortal from "./pages/AdminAuthPortal";
 import AdminDashboard from "./pages/AdminDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import GeospatialMap from "./pages/GeospatialMap";
-import { API_URL } from './api';
-
 
 const homeRoutes = [
   { path: '/Dashboard', view: 'dashboard' },
