@@ -1,63 +1,134 @@
-import { Home, Database, TrendingUp, Settings } from "lucide-react"
+import { Home, Leaf, DollarSign, Settings } from "lucide-react"
+import { useTranslation } from "../hooks/useTranslation.js"
 
-const menuItems = [
-  { id: "dashboard", label: "Dashboard", icon: Home },
-  { id: "yield-inputs", label: "Yield Inputs", icon: Database },
-  { id: "market", label: "Market", icon: TrendingUp },
-  { id: "settings", label: "Settings", icon: Settings },
+const MENU_SECTIONS = [
+  {
+    titleKey: "sidebar.section.workspace",
+    items: [
+      { id: "dashboard", labelKey: "sidebar.link.dashboard", icon: Home },
+      { id: "yield-inputs", labelKey: "sidebar.link.yield", icon: Leaf },
+      { id: "market", labelKey: "sidebar.link.price", icon: DollarSign },
+    ],
+  },
+  {
+    titleKey: "sidebar.section.account",
+    items: [{ id: "settings", labelKey: "sidebar.link.settings", icon: Settings }],
+  },
 ]
 
-export default function Sidebar({ activeItem, onItemClick }) {
+const SIDEBAR_WIDTH = "w-60"
+
+export default function Sidebar({ activeItem, onItemClick, isOpen = true, onClose }) {
+  const hasToggleState = typeof isOpen === "boolean"
+  const resolvedOpen = hasToggleState ? isOpen : true
+  const { t } = useTranslation()
+
+  const sidebarClasses = `fixed inset-y-0 left-0 z-40 flex h-full ${SIDEBAR_WIDTH} transform border-r border-emerald-100 bg-white/95 text-emerald-900 shadow-lg ring-1 ring-emerald-900/5 transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:${SIDEBAR_WIDTH} lg:translate-x-0 lg:flex-col lg:shadow-none ${
+    resolvedOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+  }`
+
   return (
-    <div className="w-64 bg-gradient-to-b from-slate-800 to-slate-900 text-white h-screen flex flex-col sticky top-0 self-start overflow-hidden">
-      {/* Logo/Brand */}
-      <div className="p-6 border-b border-slate-700 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4M9 7l6 3"/>
-            </svg>
+    <>
+      {hasToggleState ? (
+        <button
+          type="button"
+          className={`fixed inset-0 z-30 bg-emerald-950/30 transition-opacity duration-300 lg:hidden ${
+            resolvedOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+          }`}
+          onClick={onClose}
+          aria-label={t("sidebar.close", "Close navigation")}
+        />
+      ) : null}
+
+      <aside className={sidebarClasses}>
+        <div className="flex h-full flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-emerald-100/80 px-5 py-4">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 shadow-inner sm:h-10 sm:w-10">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" d="M4 8.5L12 4l8 4.5v7L12 20l-8-4.5v-7Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" d="M12 12l8-4.5" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" d="M12 12v8" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" d="M12 12L4 7.5" />
+                </svg>
+              </div>
+              <div className="leading-tight">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-600">
+                  {t("app.brand", "GeoAgriTech")}
+                </p>
+                <p className="text-[11px] font-medium text-emerald-500/80">
+                  {t("app.tagline", "Technician workspace")}
+                </p>
+              </div>
+            </div>
+
+            {hasToggleState ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-100 bg-white text-emerald-600 transition hover:border-emerald-200 hover:text-emerald-700 lg:hidden"
+                aria-label={t("sidebar.close", "Close navigation")}
+              >
+                <span className="text-base font-semibold">×</span>
+              </button>
+            ) : null}
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">GeoAgriTech</h1>
-            <p className="text-xs text-slate-400">Technician Portal</p>
+
+          <nav className="flex-1 overflow-y-auto px-4 py-5">
+            <div className="space-y-6">
+              {MENU_SECTIONS.map((section) => (
+                <div key={section.titleKey} className="space-y-3">
+                  <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
+                    {t(section.titleKey)}
+                  </p>
+                  <ul className="space-y-1.5">
+                    {section.items.map((item) => {
+                      const Icon = item.icon
+                      const isActive = activeItem === item.id
+
+                      return (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() => onItemClick(item.id)}
+                            className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                              isActive
+                                ? "bg-emerald-100/90 text-emerald-900 shadow-inner shadow-emerald-200"
+                                : "text-emerald-700 hover:bg-emerald-50"
+                            }`}
+                          >
+                            <span
+                              className={`flex h-9 w-9 items-center justify-center rounded-lg text-emerald-600 transition ${
+                                isActive
+                                  ? "bg-emerald-500/15"
+                                  : "bg-emerald-500/10 group-hover:bg-emerald-500/15"
+                              }`}
+                            >
+                              <Icon className="h-5 w-5" />
+                            </span>
+                            <span className="flex-1 truncate text-left text-sm leading-tight">
+                              {t(item.labelKey)}
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </nav>
+
+          <div className="border-t border-emerald-100/80 px-5 py-4 text-xs text-emerald-500">
+            <p className="leading-relaxed text-emerald-500/80">
+              {t("sidebar.footer.caption", "Keep submissions accurate and timely.")}
+            </p>
+            <p className="mt-4 text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-400/70">
+              © {new Date().getFullYear()} {t("app.brand", "GeoAgriTech")}
+            </p>
           </div>
         </div>
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 p-4 overflow-y-auto">
-        <ul className="space-y-2">
-          {menuItems.map((item) => {
-            const Icon = item.icon
-            const isActive = activeItem === item.id
-
-            return (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={`w-full justify-start text-left h-12 px-4 rounded-xl flex items-center transition-all duration-200 ${
-                    isActive
-                      ? "bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg shadow-green-500/50"
-                      : "text-slate-300 hover:text-white hover:bg-green-500/10 hover:shadow-md"
-                  }`}
-                  onClick={() => onItemClick(item.id)}
-                >
-                  <Icon className="mr-3 h-5 w-5" />
-                  <span className="font-medium">{item.label}</span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
-
-      {/* Footer */}
-      <div className="p-4 border-t border-slate-700 flex-shrink-0">
-        <div className="text-xs text-slate-400 text-center">
-          © 2024 GeoAgriTech
-        </div>
-      </div>
-    </div>
+      </aside>
+    </>
   )
 }

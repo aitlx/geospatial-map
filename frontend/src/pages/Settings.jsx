@@ -1,20 +1,49 @@
-import { User, Lock, Bell, Globe, Shield, Mail, Eye, EyeOff } from "lucide-react"
-import { useState, useEffect } from "react"
+import { User, Lock, Bell, Globe, Shield, Mail, Phone, CheckCircle, AlertCircle, Sun, Moon } from "lucide-react"
+import { useState, useEffect, useMemo } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
+import PropTypes from "prop-types"
+import { usePreferences } from "../context/PreferencesContext.jsx"
 
-export default function Settings() {
+const ROLE_LABELS = {
+  1: "Super Administrator",
+  2: "Administrator",
+  3: "Technician",
+}
+
+export default function Settings({ onAdminNavigate, adminNotice, onNoticeConsumed }) {
   const [userData, setUserData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [showPassword, setShowPassword] = useState(false)
-  const [formData, setFormData] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-  })
   const [notifications, setNotifications] = useState({
     email: true,
     push: true,
     updates: false,
   })
+  const [securityNotice, setSecurityNotice] = useState("")
+  const { theme, languages, language, setLanguage } = usePreferences()
+  const isDarkMode = theme === "dark"
+  const availableLanguages = useMemo(() => languages ?? [], [languages])
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  const emailVerified = Boolean(userData?.is_verified)
+  const phoneNumber = userData?.contactnumber || userData?.contactNumber || ""
+  const phoneVerified = Boolean(userData?.is_phone_verified ?? userData?.phoneVerified)
+  const roleLabel = userData?.roleLabel || userData?.role || ROLE_LABELS[userData?.roleid] || "User"
+
+  const handleVerifyEmail = () => {
+    if (!userData?.email) return
+    navigate("/verify-email?from=settings", { state: { email: userData.email, from: "settings" } })
+  }
+
+  const handleVerifyPhone = () => {
+    if (!phoneNumber) {
+      window.alert("Please add a phone number on your profile before verifying.")
+      navigate("/Edit-Profile")
+      return
+    }
+
+    navigate("/verify-phone", { state: { phoneNumber } })
+  }
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -25,10 +54,15 @@ export default function Settings() {
         
         if (response.ok) {
           const data = await response.json()
-          setUserData(data.data)
+          const rawUser = data?.data || {}
+          setUserData({
+            ...rawUser,
+            contactnumber: rawUser?.contactnumber || rawUser?.contactNumber || "",
+            roleLabel: rawUser?.roleLabel || rawUser?.role || ROLE_LABELS[rawUser?.roleid] || "User",
+          })
         }
-      } catch (error) {
-        console.error('Failed to fetch user:', error)
+      } catch {
+        setUserData(null)
       } finally {
         setLoading(false)
       }
@@ -37,231 +71,358 @@ export default function Settings() {
     fetchUserData()
   }, [])
 
-  const handlePasswordChange = async (e) => {
-    e.preventDefault()
-    
-    if (formData.newPassword !== formData.confirmPassword) {
-      alert("Passwords don't match!")
-      return
-    }
+  useEffect(() => {
+    const notice = location.state?.securityNotice
+    if (!notice) return
 
-    try {
-      const response = await fetch('http://localhost:5000/api/user/change-password', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentPassword: formData.currentPassword,
-          newPassword: formData.newPassword,
-        })
-      })
+    setSecurityNotice(notice)
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.pathname, location.state, navigate])
 
-      if (response.ok) {
-        alert('Password changed successfully!')
-        setFormData({ currentPassword: "", newPassword: "", confirmPassword: "" })
-      } else {
-        alert('Failed to change password')
-      }
-    } catch (error) {
-      console.error('Error:', error)
-      alert('An error occurred')
-    }
-  }
+  useEffect(() => {
+    if (!adminNotice) return
+    setSecurityNotice(adminNotice)
+    onNoticeConsumed?.()
+  }, [adminNotice, onNoticeConsumed])
 
   const handleNotificationToggle = (key) => {
     setNotifications(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
+  const handleChangePassword = () => {
+    if (typeof onAdminNavigate === "function") {
+      onAdminNavigate("change-password")
+      return
+    }
+
+    navigate("/Change-Password", { state: { from: "settings" } })
+  }
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="text-center space-y-3">
-          <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-green-600 mx-auto"></div>
-          <p className="text-sm text-gray-600">Loading settings...</p>
+      <section className="flex min-h-screen items-center justify-center">
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-white/85 px-4 py-3 text-emerald-600 shadow-sm shadow-emerald-900/5">
+          <span className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-300 border-t-transparent" aria-hidden="true" />
+          <p className="text-sm font-medium">Loading settings…</p>
         </div>
-      </div>
+      </section>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-          Settings
-        </h1>
-        <p className="text-gray-600 text-sm mt-1">Manage your account preferences and security</p>
+    <section className="relative min-h-screen overflow-visible rounded-3xl border border-emerald-100/70 bg-white/90 p-6 pb-12 text-slate-900 shadow-sm shadow-emerald-900/5">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-24 left-12 h-44 w-44 rounded-full bg-emerald-200/40 blur-3xl" />
+        <div className="absolute -bottom-32 -right-24 h-[22rem] w-[22rem] rounded-full bg-teal-200/30 blur-[120px]" />
       </div>
+      <div className="relative space-y-8">
+        <header className="space-y-4">
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600">
+            <User className="h-4 w-4" />
+            Account Settings
+          </div>
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold uppercase tracking-[0.08em] text-emerald-800 md:text-[28px]">Account settings</h1>
+            <p className="text-sm text-slate-500 md:text-base">Manage your profile, notifications, and security preferences.</p>
+          </div>
+        </header>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6 xl:col-span-2">
-          <div className="flex items-center gap-3 mb-6">
-            <User className="h-6 w-6 text-green-600" />
-            <h2 className="text-xl font-semibold text-gray-900">Account Information</h2>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Email</label>
-              <div className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl">
-                <Mail className="h-5 w-5 text-gray-400" />
-                <span className="text-sm font-medium text-gray-900">{userData?.email || "N/A"}</span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Role</label>
-              <div className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl">
-                <Shield className="h-5 w-5 text-gray-400" />
-                <span className="text-sm font-medium text-gray-900">{userData?.role || "N/A"}</span>
-              </div>
+        {securityNotice ? (
+          <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 p-5 text-sm text-amber-700 shadow-sm shadow-amber-900/10">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+            <div className="space-y-1">
+              <p className="font-semibold">Security notice</p>
+              <p>{securityNotice}</p>
             </div>
           </div>
+        ) : null}
+
+        <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+          <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
+            <div className="mb-6 flex flex-wrap items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                <User className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Account information</h2>
+                <p className="text-sm text-slate-500">Keep your contact details and permissions up to date.</p>
+              </div>
+            </div>
+
+<div className="grid gap-5 md:grid-cols-2">
+              <div className="group rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/30 p-6 shadow-sm shadow-emerald-900/5 transition-all duration-200 hover:shadow-md">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/30">
+                      <Mail className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-emerald-600/70">Email</p>
+                      <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">{userData?.email || "N/A"}</p>
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-flex w-fit shrink-0 items-center gap-1.5 self-start rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm sm:self-center ${
+                      emailVerified
+                        ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+                        : "border-amber-200 bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {emailVerified ? (
+                      <CheckCircle className="h-4 w-4" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4" />
+                    )}
+                    {emailVerified ? "Verified" : "Not verified"}
+                  </span>
+                </div>
+                {emailVerified ? (
+                  <div className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                    <CheckCircle className="h-5 w-5" />
+                    Email verified
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleVerifyEmail}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition-all duration-200 hover:shadow-xl hover:from-emerald-400 hover:to-teal-400"
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                    Verify email
+                  </button>
+                )}
+              </div>
+
+              <div className="group rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/30 p-6 shadow-sm shadow-emerald-900/5 transition-all duration-200 hover:shadow-md">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/30">
+                      <Phone className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-emerald-600/70">Phone</p>
+                      <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">{phoneNumber || "Not added"}</p>
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-flex w-fit shrink-0 items-center gap-1.5 self-start rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm sm:self-center ${
+                      phoneVerified
+                        ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+                        : "border-amber-200 bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {phoneVerified ? (
+                      <CheckCircle className="h-4 w-4" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4" />
+                    )}
+                    {phoneVerified ? "Verified" : "Not verified"}
+                  </span>
+                </div>
+                {phoneVerified ? (
+                  <div className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                    <CheckCircle className="h-5 w-5" />
+                    Phone verified
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleVerifyPhone}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500 bg-white px-4 py-3 text-sm font-semibold text-emerald-700 shadow-sm transition-all duration-200 hover:bg-emerald-50 hover:border-emerald-600 hover:shadow-md"
+                  >
+                    <Phone className="h-4 w-4" />
+                    {phoneNumber ? "Verify phone number" : "Add phone number"}
+                  </button>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-emerald-100/80 bg-white/75 p-5 shadow-sm shadow-emerald-900/5 md:col-span-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700">
+                    <Shield className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-600/70">Role</p>
+                    <p className="text-sm font-medium text-slate-900">{roleLabel || "N/A"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                <Lock className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Change password</h2>
+                <p className="text-sm text-slate-500">We recommend updating your password every few months.</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600">
+              Update your password regularly to keep your account secure. Launch the in-app password tool to update your credentials safely.
+            </p>
+            <button
+              type="button"
+              onClick={handleChangePassword}
+              className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 px-6 py-3 text-sm font-semibold text-white shadow-md shadow-emerald-900/10 transition hover:from-emerald-400 hover:to-teal-400"
+            >
+              Update password
+            </button>
+          </article>
         </div>
 
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6 xl:col-span-2">
-          <div className="flex items-center gap-3 mb-6">
-            <Lock className="h-6 w-6 text-green-600" />
-            <h2 className="text-xl font-semibold text-gray-900">Change Password</h2>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Current Password</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  className="w-full h-12 px-4 pr-12 bg-white border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-green-400 focus:ring-2 focus:ring-green-100 transition-all"
-                  value={formData.currentPassword}
-                  onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
-                  placeholder="Enter current password"
-                />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                <Bell className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Notification preferences</h2>
+                <p className="text-sm text-slate-500">Choose how you want to stay informed.</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between rounded-2xl border border-emerald-100/80 bg-white/75 p-4 shadow-sm shadow-emerald-900/5">
+                <div>
+                  <p className="font-semibold text-slate-900">Email notifications</p>
+                  <p className="text-sm text-slate-500">Receive notifications via email.</p>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  onClick={() => handleNotificationToggle("email")}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 ${
+                    notifications.email ? "bg-emerald-500" : "bg-slate-200"
+                  }`}
                 >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      notifications.email ? "translate-x-5" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-emerald-100/80 bg-white/75 p-4 shadow-sm shadow-emerald-900/5">
+                <div>
+                  <p className="font-semibold text-slate-900">Push notifications</p>
+                  <p className="text-sm text-slate-500">Receive push notifications on your device.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleNotificationToggle("push")}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 ${
+                    notifications.push ? "bg-emerald-500" : "bg-slate-200"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      notifications.push ? "translate-x-5" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-emerald-100/80 bg-white/75 p-4 shadow-sm shadow-emerald-900/5">
+                <div>
+                  <p className="font-semibold text-slate-900">System updates</p>
+                  <p className="text-sm text-slate-500">Get notified about platform enhancements.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleNotificationToggle("updates")}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 ${
+                    notifications.updates ? "bg-emerald-500" : "bg-slate-200"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      notifications.updates ? "translate-x-5" : "translate-x-1"
+                    }`}
+                  />
                 </button>
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">New Password</label>
-              <input
-                type="password"
-                className="w-full h-12 px-4 bg-white border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-green-400 focus:ring-2 focus:ring-green-100 transition-all"
-                value={formData.newPassword}
-                onChange={(e) => setFormData({ ...formData, newPassword: e.target.value })}
-                placeholder="Enter new password"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Confirm New Password</label>
-              <input
-                type="password"
-                className="w-full h-12 px-4 bg-white border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-green-400 focus:ring-2 focus:ring-green-100 transition-all"
-                value={formData.confirmPassword}
-                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                placeholder="Confirm new password"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handlePasswordChange}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
-            >
-              Update Password
-            </button>
-          </div>
-        </div>
+          </article>
 
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <Bell className="h-6 w-6 text-green-600" />
-            <h2 className="text-xl font-semibold text-gray-900">Notification Preferences</h2>
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-xl">
-              <div>
-                <p className="font-semibold text-gray-900">Email Notifications</p>
-                <p className="text-sm text-gray-600">Receive notifications via email</p>
+          <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                <Globe className="h-6 w-6" />
               </div>
-              <button
-                type="button"
-                onClick={() => handleNotificationToggle("email")}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  notifications.email ? "bg-green-600" : "bg-gray-300"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    notifications.email ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
-            </div>
-            <div className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-xl">
               <div>
-                <p className="font-semibold text-gray-900">Push Notifications</p>
-                <p className="text-sm text-gray-600">Receive push notifications on your device</p>
+                <h2 className="text-lg font-semibold text-slate-900">Language &amp; region</h2>
+                <p className="text-sm text-slate-500">Adjust how information shows up across the app.</p>
               </div>
-              <button
-                type="button"
-                onClick={() => handleNotificationToggle("push")}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  notifications.push ? "bg-green-600" : "bg-gray-300"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    notifications.push ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
             </div>
-            <div className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-xl">
-              <div>
-                <p className="font-semibold text-gray-900">System Updates</p>
-                <p className="text-sm text-gray-600">Get notified about system updates</p>
+            <div className="space-y-5">
+              <div className="space-y-3 rounded-2xl border border-emerald-100/80 bg-white/75 p-4 shadow-sm shadow-emerald-900/5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                      {isDarkMode ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+                    </span>
+                    <div>
+                      <p className="font-semibold text-slate-900">Appearance</p>
+                      <p className="text-sm text-slate-500">The interface follows your device theme automatically.</p>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
+                    {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                    {isDarkMode ? "Dark" : "Light"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Update your operating system's appearance settings if you want to switch themes.
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={() => handleNotificationToggle("updates")}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  notifications.updates ? "bg-green-600" : "bg-gray-300"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    notifications.updates ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-        </div>
 
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <Globe className="h-6 w-6 text-green-600" />
-            <h2 className="text-xl font-semibold text-gray-900">Language & Region</h2>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Language</label>
-              <select className="w-full h-12 px-4 bg-white border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-green-400 focus:ring-2 focus:ring-green-100 transition-all">
-                <option>English (US)</option>
-                <option>Filipino</option>
-                <option>Spanish</option>
-              </select>
+              <div>
+                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-600/70" htmlFor="language-select">
+                  Language
+                </label>
+                <select
+                  id="language-select"
+                  value={language}
+                  onChange={(event) => setLanguage(event.target.value)}
+                  className="h-12 w-full rounded-xl border border-emerald-100 bg-white px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                >
+                  {availableLanguages.map((option) => (
+                    <option key={option.id} value={option.id} className="bg-white text-slate-700">
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-600/70">
+                  Timezone
+                </label>
+                <select className="h-12 w-full rounded-xl border border-emerald-100 bg-white px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200">
+                  <option className="bg-white text-slate-700">Asia/Manila (GMT+8)</option>
+                  <option className="bg-white text-slate-700">UTC</option>
+                  <option className="bg-white text-slate-700">America/New_York (GMT-5)</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Timezone</label>
-              <select className="w-full h-12 px-4 bg-white border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-green-400 focus:ring-2 focus:ring-green-100 transition-all">
-                <option>Asia/Manila (GMT+8)</option>
-                <option>UTC</option>
-                <option>America/New_York (GMT-5)</option>
-              </select>
-            </div>
-          </div>
+          </article>
         </div>
       </div>
-    </div>
+    </section>
   )
+}
+
+Settings.propTypes = {
+  onAdminNavigate: PropTypes.func,
+  adminNotice: PropTypes.string,
+  onNoticeConsumed: PropTypes.func,
+}
+
+Settings.defaultProps = {
+  onAdminNavigate: null,
+  adminNotice: "",
+  onNoticeConsumed: null,
 }

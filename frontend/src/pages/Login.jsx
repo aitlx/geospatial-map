@@ -1,18 +1,116 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import {
+  ClipboardCheck,
+  Eye,
+  EyeOff,
+  HelpCircle,
+  Lock,
+  LogIn,
+  Mail,
+  Map,
+} from "lucide-react";
+import { getPathForView } from "../utils/viewRoutes.js";
 
 export default function Login() {
   const [formData, setFormData] = useState({
     email: "",
-    password: "",
-    rememberMe: false
+    password: ""
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+	const [checkingSession, setCheckingSession] = useState(true);
 
   const navigate = useNavigate();
+
+	const API_BASE_URL = useMemo(
+		() => import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:5000/api",
+		[]
+	);
+
+	const extractRoleId = useCallback((candidate) => {
+		if (!candidate || typeof candidate !== "object") return null;
+		const rawRole =
+			candidate.roleID ??
+			candidate.roleid ??
+			candidate.role_id ??
+			candidate.role;
+		const numericRole =
+			typeof rawRole === "string" ? Number.parseInt(rawRole, 10) : rawRole;
+		return Number.isFinite(numericRole) ? numericRole : null;
+	}, []);
+
+	const resolveDestination = useCallback((roleId) => {
+		if (!Number.isFinite(roleId)) return null;
+		if (roleId === 1 || roleId === 2) return "/admin/dashboard";
+		if (roleId === 3) return getPathForView("dashboard") || "/Dashboard";
+		return "/";
+	}, []);
+
+	useEffect(() => {
+		let isMounted = true;
+		let redirected = false;
+
+		const redirectIfAuthenticated = (roleId) => {
+			const target = resolveDestination(roleId);
+			if (target) {
+				redirected = true;
+				navigate(target, { replace: true });
+			}
+		};
+
+		const checkLocalSession = () => {
+			if (typeof window === "undefined") return null;
+			try {
+				const cached = window.localStorage.getItem("user");
+				if (!cached) return null;
+				const parsed = JSON.parse(cached);
+				return extractRoleId(parsed);
+					} catch {
+				return null;
+			}
+		};
+
+		const localRole = checkLocalSession();
+		if (localRole !== null) {
+			redirectIfAuthenticated(localRole);
+			if (isMounted && !redirected) {
+				setCheckingSession(false);
+			}
+			return () => {
+				isMounted = false;
+			};
+		}
+
+		const verifyRemoteSession = async () => {
+			try {
+				const response = await axios.get(`${API_BASE_URL}/user/me`, {
+					withCredentials: true,
+				});
+				if (!isMounted) return;
+				const roleId = extractRoleId(response.data?.data);
+				if (roleId !== null) {
+					redirectIfAuthenticated(roleId);
+					return;
+				}
+					} catch {
+						/* ignore remote session verification errors */
+			} finally {
+				if (isMounted && !redirected) {
+					setCheckingSession(false);
+				}
+			}
+		};
+
+		verifyRemoteSession();
+
+		return () => {
+			isMounted = false;
+		};
+	}, [API_BASE_URL, extractRoleId, navigate, resolveDestination]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -26,15 +124,18 @@ export default function Login() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const response = await axios.post(
-        "http://localhost:5000/api/auth/login",
-        formData,
-        { withCredentials: true }
-      );
-      toast.success(response.data.message || "Login successful!");
-      setTimeout(() => {
-        navigate("/home");
-      }, 1500);
+			const response = await axios.post(
+				`${API_BASE_URL}/auth/login`,
+				formData,
+				{ withCredentials: true }
+			);
+			toast.success(response.data.message || "Login successful!");
+			if (typeof window !== "undefined") {
+				window.dispatchEvent(new Event("auth:login"));
+			}
+			setTimeout(() => {
+				navigate(getPathForView("dashboard") || "/Dashboard");
+			}, 1500);
     } catch (error) {
       let msg = "An unexpected error occurred.";
 
@@ -65,120 +166,131 @@ export default function Login() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 flex items-center justify-center p-4 overflow-hidden">
-      <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover className="mt-16" />
-      <div className="w-full max-w-md relative">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl mb-4 shadow-lg">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4M9 7l6 3"/>
-            </svg>
-          </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">GeoAgriTech</h1>
-          <p className="text-gray-600 text-sm mt-1">Geospatial Agriculture Intelligence</p>
-        </div>
-        <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/20 overflow-hidden">
-          <div className="p-8">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">Technician Portal</h2>
-              <p className="text-gray-600 text-sm">Access geospatial analysis & recommendations</p>
-            </div>
-            <form onSubmit={loginUser} className="space-y-6">
-              <div className="form-control">
-                <label className="label pb-2">
-                  <span className="label-text font-medium text-gray-700">Email Address</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    placeholder="technician@geoagritech.com"
-                    className="w-full bg-white/50 backdrop-blur-sm border border-gray-100 focus:border-green-400 focus:bg-white rounded-2xl h-12 pl-12 transition-all duration-200 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:shadow-lg focus:shadow-green-100"
-                    required
-                  />
-                  <svg className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                  </svg>
-                </div>
-              </div>
-              <div className="form-control">
-                <label className="label pb-2">
-                  <span className="label-text font-medium text-gray-700">Password</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    name="password"
-                    value={formData.password}
-                    onChange={handleChange}
-                    placeholder="Enter your secure password"
-                    className="w-full bg-white/50 backdrop-blur-sm border border-gray-100 focus:border-green-400 focus:bg-white rounded-2xl h-12 pl-12 transition-all duration-200 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:shadow-lg focus:shadow-green-100"
-                    required
-                  />
-                  <svg className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                  </svg>
-                </div>
-              </div>
-              <div className="form-control">
-                <label className="label cursor-pointer justify-start gap-3">
-                  <input
-                    type="checkbox"
-                    name="rememberMe"
-                    checked={formData.rememberMe}
-                    onChange={handleChange}
-                    className="checkbox checkbox-sm border-gray-300 [--chkbg:theme(colors.green.500)] [--chkfg:white] rounded"
-                  />
-                  <span className="label-text text-gray-600 text-sm">Remember me for 30 days</span>
-                </label>
-              </div>
-              <div className="form-control mt-8">
-                <button 
-                  type="submit" 
-                  disabled={isLoading}
-                  className="btn h-12 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 border-none text-white font-semibold rounded-2xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-70"
-                >
-                  {isLoading ? (
-                    <>
-                      <span className="loading loading-spinner loading-sm"></span>
-                      Logging In...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
-                      </svg>
-                      Log In
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-            <div className="text-center mt-6">
-              <Link to="/forgot-password" className="text-sm text-gray-600 hover:text-green-600 transition-colors duration-200">
-                Forgot your password?
-              </Link>
-            </div>
-          </div>
-          <div className="px-8 py-6 bg-gradient-to-r from-green-50 to-emerald-50 border-t border-gray-100">
-            <p className="text-center text-sm text-gray-600">
-              Need a technician account?{" "}
-              <Link 
-                to="/register" 
-                className="font-semibold text-green-600 hover:text-green-700 transition-colors duration-200"
-              >
-                Request access
-              </Link>
-            </p>
-          </div>
-        </div>
-        <div className="text-center mt-8 text-xs text-gray-500">
-          <p>© 2024 GeoAgriTech. Geospatial intelligence for precision agriculture.</p>
-        </div>
-      </div>
-    </div>
-  );
+	if (checkingSession) {
+		return (
+			<div className="flex min-h-screen items-center justify-center bg-slate-950">
+				<div className="flex flex-col items-center gap-3 text-emerald-200">
+					<div
+						className="h-10 w-10 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent"
+						aria-hidden="true"
+					/>
+					<p className="text-sm font-medium">Redirecting…</p>
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-emerald-100 px-4 py-6">
+			<ToastContainer
+				position="top-right"
+				autoClose={3000}
+				newestOnTop
+				closeOnClick
+				pauseOnHover
+			/>
+
+	<header className="absolute top-4 left-1/2 z-20 w-full max-w-[340px] -translate-x-1/2 px-4">
+				<div className="flex items-center justify-center rounded-xl border border-emerald-200/60 bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700 shadow-sm backdrop-blur">
+					<span>GeoAgriTech</span>
+				</div>
+			</header>
+
+			<div className="relative z-10 mx-auto w-full max-w-[340px]">
+				<section className="relative flex flex-col gap-4 rounded-3xl border border-emerald-100 bg-white/95 px-5 py-6 text-slate-900 shadow-xl backdrop-blur">
+					<div className="relative z-10 flex flex-col gap-4">
+						<div className="space-y-2">
+							<div className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-teal-700">
+								<Map className="h-3 w-3" /> Technician portal
+							</div>
+							<div>
+								<h2 className="text-lg font-semibold text-slate-900">Update barangay records</h2>
+								<p className="mt-0.5 text-xs text-slate-500">Technicians only.</p>
+							</div>
+						</div>
+
+						<div className="flex items-start gap-2.5 rounded-xl border border-teal-100 bg-teal-50/70 px-3 py-2.5 text-xs text-teal-700">
+							<div className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-100 text-teal-700">
+								<ClipboardCheck className="h-3.5 w-3.5" />
+							</div>
+							<p className="leading-snug">Use your registered technician credentials.</p>
+						</div>
+
+						<form onSubmit={loginUser} className="flex flex-col gap-4">
+							<div className="space-y-1.5">
+								<label htmlFor="email" className="text-xs font-medium text-slate-700">
+									Email address
+								</label>
+								<div className="flex items-center gap-2.5 rounded-xl border border-teal-100 bg-teal-50/70 px-3 py-2 shadow-sm transition focus-within:border-teal-400 focus-within:bg-white focus-within:shadow-md">
+									<Mail className="h-4 w-4 text-teal-500" />
+									<input
+										id="email"
+										type="email"
+										name="email"
+										value={formData.email}
+										onChange={handleChange}
+										placeholder="technician@geoagritech.com"
+										className="flex-1 bg-transparent text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
+										required
+										autoComplete="email"
+									/>
+								</div>
+							</div>
+
+							<div className="space-y-1.5">
+								<label htmlFor="password" className="text-xs font-medium text-slate-700">
+									Password
+								</label>
+								<div className="flex items-center gap-2.5 rounded-xl border border-teal-100 bg-teal-50/70 px-3 py-2 shadow-sm transition focus-within:border-teal-400 focus-within:bg-white focus-within:shadow-md">
+									<Lock className="h-4 w-4 text-teal-500" />
+									<input
+										id="password"
+										type={showPassword ? "text" : "password"}
+										name="password"
+										value={formData.password}
+										onChange={handleChange}
+										placeholder="Enter your password"
+										className="flex-1 bg-transparent text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
+										required
+										autoComplete="current-password"
+									/>
+									<button
+										type="button"
+										onClick={() => setShowPassword((prev) => !prev)}
+										className="flex h-6 w-6 items-center justify-center rounded-full text-teal-500 transition hover:bg-teal-50"
+										aria-label={showPassword ? "Hide password" : "Show password"}
+									>
+										{showPassword ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+									</button>
+								</div>
+							</div>
+
+							<button
+								type="submit"
+								disabled={isLoading}
+								className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-teal-500 via-teal-600 to-teal-500 text-xs font-semibold text-white shadow-lg shadow-teal-200 transition hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-70"
+							>
+								{isLoading ? (
+									<>
+										<span className="loading loading-spinner loading-sm" />
+										Logging in…
+									</>
+								) : (
+									<>
+										<LogIn className="h-3.5 w-3.5" />
+										Log in
+									</>
+								)}
+							</button>
+						</form>
+
+						<div className="space-y-1.5 text-[11px] text-slate-500">
+							<p>Need access? Contact your municipal administrator.</p>
+							<Link to="/forgot-password" className="font-semibold text-teal-600 transition hover:text-teal-700">Forgot password?</Link>
+						</div>
+					</div>
+				</section>
+			</div>
+		</div>
+	);
 }

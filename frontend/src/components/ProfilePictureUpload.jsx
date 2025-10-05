@@ -3,6 +3,8 @@ import axios from "axios";
 import { toast } from "react-toastify";
 import { X, UploadCloud, Loader2 } from "lucide-react";
 
+const DEFAULT_PROFILE_IMAGE = "/default-profile.webp";
+
 export default function ProfilePictureUpload({
   isOpen,
   onClose,
@@ -33,7 +35,7 @@ export default function ProfilePictureUpload({
     if (currentImage) {
       setPreviewUrl(currentImage);
     } else {
-      setPreviewUrl(null);
+      setPreviewUrl(DEFAULT_PROFILE_IMAGE);
     }
   }, [isOpen, currentImage]);
 
@@ -100,7 +102,6 @@ export default function ProfilePictureUpload({
       onUploadSuccess?.(data.data);
       onClose?.();
     } catch (error) {
-      console.error("Profile photo upload failed:", error);
       toast.error(error.response?.data?.message || error.message || "Unable to upload profile photo");
     } finally {
       setIsUploading(false);
@@ -113,7 +114,7 @@ export default function ProfilePictureUpload({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+    <div className="fixed inset-0 z-[1400] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
       <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-2xl">
         <button
           type="button"
@@ -135,13 +136,12 @@ export default function ProfilePictureUpload({
 
           <div className="flex flex-col items-center gap-4">
             <div className="relative h-40 w-40 overflow-hidden rounded-3xl border-4 border-white shadow-xl">
-              {previewUrl ? (
-                <img src={previewUrl} alt="Profile preview" className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-green-200 to-emerald-300 text-5xl font-semibold text-white">
-                  ?
-                </div>
-              )}
+              <img 
+                src={previewUrl || DEFAULT_PROFILE_IMAGE} 
+                alt="Profile preview" 
+                onError={(e) => { e.target.onerror = null; e.target.src = DEFAULT_PROFILE_IMAGE; }}
+                className="h-full w-full object-cover" 
+              />
             </div>
 
             <label

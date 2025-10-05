@@ -1,0 +1,37 @@
+{
+  "generated_at": "2025-10-02T17:34:20Z",
+  "model_path": "C:\\geospatial-map\\ml\\models\\recommendation_gbr.joblib",
+  "metrics": {
+    "rmse": {
+      "avg_yield": 0.4232459731572722,
+      "avg_price": 1.577163261010121
+    },
+    "r2": {
+      "avg_yield": 0.6713672651682316,
+      "avg_price": 0.5812291941225036
+    },
+    "test_samples": 173,
+    "train_samples": 691
+  },
+  "features": [
+    "barangay_id",
+    "crop_id",
+    "season",
+    "year",
+    "lag_yield",
+    "lag_price",
+    "rolling_yield",
+    "rolling_price"
+  ],
+  "target_columns": [
+    "avg_yield",
+    "avg_price"
+  ],
+  "sklearn_version": "1.7.2",
+  "dataset": {
+    "total_rows": 864,
+    "feature_columns": 8,
+    "target_columns": 2,
+    "source_rows": 1080
+  }
+}

@@ -1,14 +1,17 @@
-import { User, Mail, Phone, Calendar, Shield, Camera, Clock, LogIn, LogOut, FileEdit } from "lucide-react"
+import { User, Mail, Phone, Calendar, Shield, Camera, Clock, Pencil } from "lucide-react"
 import { useState, useEffect, useMemo, useCallback } from "react"
+import { Link } from "react-router-dom"
 import axios from "axios"
 import { toast, ToastContainer } from "react-toastify"
 import "react-toastify/dist/ReactToastify.css"
 import ProfilePictureUpload from "../components/ProfilePictureUpload"
 
+const DEFAULT_PROFILE_IMAGE = "/default-profile.webp"
+
 export default function ProfilePage({ successMessage = "", onSuccessMessageHandled }) {
   const [userData, setUserData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [profileImage, setProfileImage] = useState(null)
+  const [profileImage, setProfileImage] = useState(DEFAULT_PROFILE_IMAGE)
   const [activityLogs, setActivityLogs] = useState([])
   const [logsLoading, setLogsLoading] = useState(true)
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
@@ -48,29 +51,96 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
     }
   }, [])
 
-  const deriveLogType = useCallback((action = "") => {
+  const shouldDisplayLog = useCallback((action = "") => {
+    if (!action) return false
     const normalized = action.toUpperCase()
-    if (normalized.includes("LOGIN")) return "login"
-    if (normalized.includes("LOGOUT")) return "logout"
-    if (normalized.includes("CREATE") || normalized.includes("ADD")) return "create"
-    if (normalized.includes("DELETE")) return "delete"
-    if (normalized.includes("UPDATE") || normalized.includes("EDIT")) return "update"
-    return "general"
+
+    if (normalized.startsWith("FETCH") || normalized.startsWith("GET")) {
+      return false
+    }
+
+    if (normalized.includes("PENDING_APPROVAL")) {
+      return false
+    }
+
+    return true
   }, [])
+
+  const humanize = useCallback((value) => {
+    if (!value) return "";
+    return String(value)
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }, []);
+
+  const describeActivity = useCallback((log, details) => {
+    const action = (log?.action || "").toUpperCase();
+
+    switch (action) {
+      case "LOGIN_USER":
+        return "Signed in";
+      case "LOGIN_ADMIN":
+        return "Signed in via admin portal";
+      case "LOGOUT_USER":
+        return "Signed out";
+      case "CHANGE_PASSWORD":
+        return "Changed account password";
+      case "REGISTER_USER":
+        return "Registered a new account";
+      case "UPDATE_PROFILE": {
+        const updatedFields = Array.isArray(details?.updatedFields) ? details.updatedFields.filter(Boolean) : [];
+        const fieldLabels = updatedFields.map((field) => humanize(field)).filter(Boolean);
+        const fieldSummary = fieldLabels.length ? fieldLabels.join(", ") : "profile details";
+        const photoNote = details?.fileUploaded ? " and refreshed profile photo" : "";
+        return `Updated ${fieldSummary}${photoNote}`;
+      }
+      case "APPROVE_RECORD":
+      case "REJECT_RECORD": {
+        const approvalDetails = details?.approval ?? {};
+        const mainDetails = details?.mainTable ?? {};
+        const recordType = approvalDetails.record_type || mainDetails.record_type || log?.target_table || "record";
+        const recordId = approvalDetails.record_id || mainDetails.price_id || mainDetails.yield_id || log?.target_id;
+        const friendlyType = humanize(recordType);
+        const actionVerb = action === "APPROVE_RECORD" ? "Approved" : "Rejected";
+        const reasonNote = action === "REJECT_RECORD" && details?.reason ? ` – ${details.reason}` : "";
+        return `${actionVerb} ${friendlyType}${recordId ? ` #${recordId}` : ""}${reasonNote}`;
+      }
+      case "CREATE_USER":
+        return "Created a new user account";
+      case "UPDATE_USER":
+        return "Updated a user account";
+      case "DELETE_USER":
+        return "Removed a user account";
+      case "SUBMIT_CROP_PRICE":
+        return "Submitted crop price data";
+      case "SUBMIT_BARANGAY_YIELD":
+        return "Submitted barangay yield data";
+      default:
+        break;
+    }
+
+    return details?.description || details?.message || humanize(action) || "Activity";
+  }, [humanize]);
 
   const formatLogEntry = useCallback((log) => {
     if (!log) return null
 
+    if (!shouldDisplayLog(log.action)) {
+      return null
+    }
+
     const details = parseDetails(log.details)
-    const description = details?.description || details?.message || log.action?.replace(/_/g, " ") || "Activity"
+    const description = describeActivity(log, details)
 
     return {
       id: log.log_id || log.id || crypto.randomUUID(),
-      type: deriveLogType(log.action),
       description,
       timestamp: log.created_at || log.logged_at || log.timestamp || new Date().toISOString()
     }
-  }, [deriveLogType, parseDetails])
+  }, [describeActivity, parseDetails, shouldDisplayLog])
 
   useEffect(() => {
     if (successMessage) {
@@ -94,9 +164,11 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
           const normalizedUser = normalizeUser(data.data)
           setUserData(normalizedUser)
 
-          if (normalizedUser.profileimg) {
-            setProfileImage(`${ASSET_BASE_URL}/uploads/${normalizedUser.profileimg}`)
-          }
+          setProfileImage(
+            normalizedUser.profileimg
+              ? `${ASSET_BASE_URL}/uploads/${normalizedUser.profileimg}`
+              : DEFAULT_PROFILE_IMAGE
+          )
 
           return normalizedUser
         } else {
@@ -104,21 +176,19 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
         }
       } catch (error) {
         if (!isMounted) return
-        console.error("Failed to fetch user:", error)
         toast.error(error.response?.data?.message || "Unable to load profile information")
+        setUserData(null)
         return null
       } finally {
         if (isMounted) setLoading(false)
       }
     }
 
-    const fetchActivityLogs = async (roleId) => {
+    const fetchActivityLogs = async () => {
       if (!isMounted) return
       setLogsLoading(true)
 
-      const technicianRoute = `${API_BASE_URL.replace(/\/$/, "")}/logs/my-logs`
-      const adminRoute = `${API_BASE_URL.replace(/\/$/, "")}/logs`
-      const endpoint = roleId === 3 ? technicianRoute : adminRoute
+      const endpoint = `${API_BASE_URL.replace(/\/$/, "")}/logs/self`
 
       try {
         const { data } = await axios.get(endpoint, { withCredentials: true })
@@ -137,25 +207,19 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
         }
       } catch (error) {
         if (!isMounted) return
-        console.error("Failed to fetch logs:", error)
 
-        if (error.response?.status === 403 && roleId !== 3) {
-          setActivityLogs([])
-        } else {
-          toast.error(error.response?.data?.message || "Unable to load activity logs")
-          setActivityLogs([])
-        }
+        toast.error(error.response?.data?.message || "Unable to load activity logs")
+        setActivityLogs([])
       } finally {
         if (isMounted) setLogsLoading(false)
       }
     }
 
     const initialize = async () => {
-      const user = await fetchUserData()
+      await fetchUserData()
       if (!isMounted) return
 
-      const roleId = Number(user?.roleid ?? user?.roleID)
-      await fetchActivityLogs(Number.isNaN(roleId) ? undefined : roleId)
+      await fetchActivityLogs()
     }
 
     initialize()
@@ -176,7 +240,7 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
 
     const cacheBustedImage = normalized.profileimg
       ? `${ASSET_BASE_URL}/uploads/${normalized.profileimg}?t=${Date.now()}`
-      : null
+      : DEFAULT_PROFILE_IMAGE
 
     setProfileImage(cacheBustedImage)
     setUserData((prev) => ({
@@ -184,15 +248,6 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
       ...normalized
     }))
   }, [ASSET_BASE_URL, normalizeUser])
-
-  const getActivityIcon = (type) => {
-    switch(type) {
-      case 'login': return <LogIn className="h-4 w-4 text-green-600" />
-      case 'logout': return <LogOut className="h-4 w-4 text-gray-600" />
-      case 'update': return <FileEdit className="h-4 w-4 text-blue-600" />
-      default: return <Clock className="h-4 w-4 text-gray-600" />
-    }
-  }
 
   const formatTimestamp = (timestamp) => {
     const date = new Date(timestamp)
@@ -211,10 +266,10 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading profile...</p>
+      <div className="min-h-screen bg-gradient-to-br from-white via-emerald-50/40 to-white flex items-center justify-center">
+        <div className="text-center text-slate-700">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
+          <p className="text-sm text-slate-600">Loading profile...</p>
         </div>
       </div>
     )
@@ -225,155 +280,173 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
   const accountStatus = userData?.is_verified ? "Verified" : "Pending Verification"
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 py-8 px-4">
-      <div className="max-w-4xl mx-auto">
-        <ToastContainer position="top-right" autoClose={3000} />
-        <div className="bg-white rounded-3xl shadow-xl overflow-hidden mb-6">
-          <div className="h-32 bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500"></div>
-          <div className="px-8 pb-8">
-            <div className="flex flex-col items-center gap-4 -mt-16 mb-6 text-center">
-              <div className="flex flex-col items-center gap-4">
-                <div className="relative group">
-                  {profileImage ? (
-                    <img 
-                      src={profileImage} 
-                      alt="Profile" 
-                      className="w-32 h-32 rounded-2xl object-cover shadow-xl border-4 border-white"
-                    />
-                  ) : (
-                    <div className="w-32 h-32 bg-gradient-to-br from-green-400 to-emerald-600 rounded-2xl flex items-center justify-center text-white text-4xl font-bold shadow-xl border-4 border-white">
-                      {initials}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={openUploadModal}
-                    className="absolute bottom-0 right-0 bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg cursor-pointer shadow-lg transition-all duration-200 hover:scale-110"
-                    title="Update profile picture"
-                  >
-                    <Camera className="h-4 w-4" />
-                  </button>
+    <div className="min-h-screen bg-gradient-to-br from-white via-emerald-50/40 to-white py-10 px-4 text-slate-900">
+      <div className="mx-auto flex max-w-5xl flex-col gap-8">
+        <ToastContainer position="top-right" autoClose={3000} theme="light" />
+
+        <div className="relative overflow-hidden rounded-3xl border border-emerald-100/70 bg-white/90 shadow-lg shadow-emerald-900/5 backdrop-blur-xl">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.08),_transparent_65%)]" aria-hidden="true"></div>
+          <div className="relative h-36 w-full bg-gradient-to-r from-emerald-500/30 via-emerald-400/15 to-transparent"></div>
+          <div className="relative -mt-16 px-8 pb-10">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex flex-col items-center gap-6 text-center sm:flex-row sm:items-end sm:gap-10 sm:text-left">
+                <div className="relative">
+                <div className="absolute inset-0 -translate-y-1 scale-110 rounded-3xl bg-emerald-400/20 blur-3xl" aria-hidden="true"></div>
+                <img
+                  src={profileImage || DEFAULT_PROFILE_IMAGE}
+                  alt={fullName ? `${fullName}'s profile photo` : `Profile ${initials}`}
+                  onError={(e) => { e.target.onerror = null; e.target.src = DEFAULT_PROFILE_IMAGE; }}
+                  className="relative h-32 w-32 rounded-2xl border border-emerald-200 bg-white object-cover shadow-xl shadow-emerald-500/20"
+                />
+                <button
+                  type="button"
+                  onClick={openUploadModal}
+                  className="absolute bottom-3 right-3 flex items-center justify-center rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:bg-emerald-600"
+                  title="Update profile picture"
+                >
+                  <Camera className="h-4 w-4" />
+                </button>
                 </div>
-                <div className="mb-2">
-                  <h1 className="text-3xl font-bold text-gray-800">{fullName}</h1>
-                  <p className="text-gray-600">{userData?.roleLabel || 'User'}</p>
+
+                <div className="space-y-3 sm:space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-600/80">My profile</p>
+                    <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 md:text-[28px]">{fullName}</h1>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-slate-600 sm:justify-start">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 font-medium text-emerald-700">
+                      <Shield className="h-4 w-4" />
+                      {userData?.roleLabel || 'User'}
+                    </span>
+                    <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-1.5 font-medium text-slate-700">
+                      <span className={`h-2 w-2 rounded-full ${userData?.is_verified ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                      {accountStatus}
+                    </span>
+                  </div>
                 </div>
               </div>
+
+              <Link
+                to="/Edit-Profile"
+                className="inline-flex items-center justify-center gap-2 self-center rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/40 sm:self-end"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit profile
+              </Link>
             </div>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-3xl shadow-lg p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <User className="h-5 w-5 text-green-600" />
-              Personal Information
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-3xl border border-emerald-100/70 bg-white/95 p-6 shadow-sm shadow-emerald-900/5">
+            <h2 className="mb-6 flex items-center gap-2 text-lg font-semibold text-slate-900">
+              <User className="h-5 w-5 text-emerald-600" />
+              Personal information
             </h2>
             <div className="space-y-4">
-              <div>
-                <label className="text-sm text-gray-500 font-medium">First Name</label>
-                <p className="text-gray-800 font-medium mt-1">{userData?.firstname || 'Not provided'}</p>
+              <div className="rounded-2xl border border-emerald-100/60 bg-emerald-50/40 p-4">
+                <label className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600/80">First name</label>
+                <p className="mt-2 text-base font-semibold text-slate-900">{userData?.firstname || 'Not provided'}</p>
               </div>
-              <div>
-                <label className="text-sm text-gray-500 font-medium">Last Name</label>
-                <p className="text-gray-800 font-medium mt-1">{userData?.lastname || 'Not provided'}</p>
+              <div className="rounded-2xl border border-emerald-100/60 bg-emerald-50/40 p-4">
+                <label className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600/80">Last name</label>
+                <p className="mt-2 text-base font-semibold text-slate-900">{userData?.lastname || 'Not provided'}</p>
               </div>
-              <div>
-                <label className="text-sm text-gray-500 font-medium">Role</label>
-                <p className="text-gray-800 font-medium mt-1">{userData?.roleLabel || 'Not provided'}</p>
+              <div className="rounded-2xl border border-emerald-100/60 bg-emerald-50/40 p-4">
+                <label className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600/80">Role</label>
+                <p className="mt-2 text-base font-semibold text-slate-900">{userData?.roleLabel || 'Not provided'}</p>
               </div>
-              <div>
-                <label className="text-sm text-gray-500 font-medium">Bio</label>
-                <p className="text-gray-600 mt-1 text-sm leading-relaxed">
+              <div className="rounded-2xl border border-emerald-100/60 bg-emerald-50/40 p-4">
+                <label className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600/80">Bio</label>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
                   {userData?.bio || 'No bio added yet. Tell us about yourself!'}
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-lg p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <Mail className="h-5 w-5 text-green-600" />
-              Contact Information
+          <div className="rounded-3xl border border-emerald-100/70 bg-white/95 p-6 shadow-sm shadow-emerald-900/5">
+            <h2 className="mb-6 flex items-center gap-2 text-lg font-semibold text-slate-900">
+              <Mail className="h-5 w-5 text-emerald-600" />
+              Contact information
             </h2>
             <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <Mail className="h-5 w-5 text-gray-400 mt-0.5" />
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-100/60 bg-emerald-50/40 p-4">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600">
+                  <Mail className="h-5 w-5" />
+                </span>
                 <div className="flex-1">
-                  <label className="text-sm text-gray-500 font-medium">Email Address</label>
-                  <p className="text-gray-800 font-medium mt-1">{userData?.email || 'Not provided'}</p>
+                  <label className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600/80">Email address</label>
+                  <p className="mt-2 text-base font-semibold text-slate-900">{userData?.email || 'Not provided'}</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3">
-                <Phone className="h-5 w-5 text-gray-400 mt-0.5" />
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-100/60 bg-emerald-50/40 p-4">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600">
+                  <Phone className="h-5 w-5" />
+                </span>
                 <div className="flex-1">
-                  <label className="text-sm text-gray-500 font-medium">Phone Number</label>
-                  <p className="text-gray-800 font-medium mt-1">{userData?.contactnumber || 'Not provided'}</p>
+                  <label className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600/80">Phone number</label>
+                  <p className="mt-2 text-base font-semibold text-slate-900">{userData?.contactnumber || 'Not provided'}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-lg p-6 md:col-span-2">
-            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <Clock className="h-5 w-5 text-green-600" />
-              Recent Activity
+          <div className="rounded-3xl border border-emerald-100/70 bg-white/95 p-6 shadow-sm shadow-emerald-900/5 lg:col-span-2">
+            <h2 className="mb-6 flex items-center gap-2 text-lg font-semibold text-slate-900">
+              <Clock className="h-5 w-5 text-emerald-600" />
+              Recent activity
             </h2>
-            <div className="space-y-3 max-h-80 overflow-y-auto">
+            <div className="max-h-72 overflow-y-auto rounded-2xl border border-emerald-100/60 bg-emerald-50/30">
               {logsLoading ? (
-                <div className="flex items-center justify-center py-10 text-gray-500">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600 mr-3"></div>
+                <div className="flex items-center justify-center gap-3 py-8 text-slate-600">
+                  <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-emerald-500"></div>
                   <span className="text-sm">Loading activity logs...</span>
                 </div>
               ) : activityLogs.length > 0 ? (
-                activityLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="flex items-center gap-4 p-4 rounded-xl hover:bg-gray-50 transition-colors border border-gray-100"
-                  >
-                    <div className="flex-shrink-0">
-                      {getActivityIcon(log.type)}
+                <div className="flex flex-col divide-y divide-emerald-100/60">
+                  {activityLogs.slice(0, 7).map((log) => (
+                    <div key={log.id} className="px-5 py-4 transition-colors hover:bg-emerald-100/45">
+                      <p className="text-sm font-medium text-slate-900 line-clamp-2">{log.description}</p>
+                      <p className="mt-1 text-xs text-slate-500">{formatTimestamp(log.timestamp)}</p>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-800">{log.description}</p>
-                      <p className="text-xs text-gray-500 mt-1">{formatTimestamp(log.timestamp)}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <Clock className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p className="text-sm">No activity logs available</p>
+                  ))}
                 </div>
+              ) : (
+                <div className="px-5 py-8 text-center text-sm text-slate-600">No recent activity yet.</div>
               )}
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-lg p-6 md:col-span-2">
-            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-              <Shield className="h-5 w-5 text-green-600" />
-              Account Details
+          <div className="rounded-3xl border border-emerald-100/70 bg-white/95 p-6 shadow-sm shadow-emerald-900/5 lg:col-span-2">
+            <h2 className="mb-6 flex items-center gap-2 text-lg font-semibold text-slate-900">
+              <Shield className="h-5 w-5 text-emerald-600" />
+              Account details
             </h2>
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="flex items-start gap-3">
-                <Calendar className="h-5 w-5 text-gray-400 mt-0.5" />
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-100/60 bg-emerald-50/40 p-4">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600">
+                  <Calendar className="h-5 w-5" />
+                </span>
                 <div>
-                  <label className="text-sm text-gray-500 font-medium">Member Since</label>
-                  <p className="text-gray-800 font-medium mt-1">
-                    {userData?.createdat ? new Date(userData.createdat).toLocaleDateString('en-US', { 
-                      year: 'numeric', 
-                      month: 'long', 
-                      day: 'numeric' 
+                  <label className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600/80">Member since</label>
+                  <p className="mt-2 text-base font-semibold text-slate-900">
+                    {userData?.createdat ? new Date(userData.createdat).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
                     }) : 'N/A'}
                   </p>
                 </div>
               </div>
-              <div className="flex items-start gap-3">
-                <Shield className="h-5 w-5 text-gray-400 mt-0.5" />
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-100/60 bg-emerald-50/40 p-4">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600">
+                  <Shield className="h-5 w-5" />
+                </span>
                 <div>
-                  <label className="text-sm text-gray-500 font-medium">Account Status</label>
-                  <p className="text-gray-800 font-medium mt-1 flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${userData?.is_verified ? 'bg-green-500' : 'bg-yellow-400'}`}></span>
+                  <label className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600/80">Account status</label>
+                  <p className="mt-2 flex items-center gap-2 text-base font-semibold text-slate-900">
+                    <span className={`h-2 w-2 rounded-full ${userData?.is_verified ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                     {accountStatus}
                   </p>
                 </div>
@@ -382,12 +455,13 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
           </div>
         </div>
       </div>
-        <ProfilePictureUpload
-          isOpen={isUploadModalOpen}
-          onClose={closeUploadModal}
-          currentImage={profileImage}
-          onUploadSuccess={handleProfilePhotoUpdated}
-        />
+
+      <ProfilePictureUpload
+        isOpen={isUploadModalOpen}
+        onClose={closeUploadModal}
+        currentImage={profileImage}
+        onUploadSuccess={handleProfilePhotoUpdated}
+      />
     </div>
   )
 }
