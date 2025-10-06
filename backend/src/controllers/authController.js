@@ -102,6 +102,11 @@ export const loginUser = async (req, res) => {
       return handleResponse(res, 401, "invalid email or password");
     }
 
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET is not set in environment');
+      return handleResponse(res, 500, 'server misconfiguration');
+    }
+
     const token = jwt.sign(
       {
         id: user.userid || user.id,
@@ -117,6 +122,7 @@ export const loginUser = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -169,6 +175,11 @@ export const loginAdmin = async (req, res) => {
       return handleResponse(res, 403, "account does not have administrative access");
     }
 
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET is not set in environment');
+      return handleResponse(res, 500, 'server misconfiguration');
+    }
+
     const token = jwt.sign(
       {
         id: user.userid || user.id,
@@ -184,6 +195,7 @@ export const loginAdmin = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 

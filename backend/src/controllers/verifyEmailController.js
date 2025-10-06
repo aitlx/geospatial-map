@@ -7,6 +7,7 @@ import {
   verifyCodeService,
 } from "../services/emailVerificationService.js";
 
+// Helper to build legacy response for email verification
 const buildLegacyResponse = (message) => `<!doctype html>
 <html lang="en">
   <head>
@@ -32,6 +33,7 @@ const buildLegacyResponse = (message) => `<!doctype html>
   </body>
 </html>`;
 
+// Extract JWT token from cookies or authorization header
 const extractToken = (req) => {
   if (req.cookies?.token) {
     return req.cookies.token;
@@ -45,6 +47,7 @@ const extractToken = (req) => {
   return null;
 };
 
+// Resolve email from different possible locations in request
 const resolveEmail = (req) => {
   const candidates = [
     req.body?.email,
@@ -63,6 +66,7 @@ const resolveEmail = (req) => {
   return "";
 };
 
+// Resolve authenticated user by decoding JWT and querying the DB
 const resolveAuthenticatedUser = async (req) => {
   const token = extractToken(req);
   if (!token || !process.env.JWT_SECRET) {
@@ -90,7 +94,7 @@ const resolveAuthenticatedUser = async (req) => {
     const user = userResult.rows[0];
     return user ? { user, email: tokenEmail } : null;
   } catch (error) {
-    console.debug("Unable to resolve authenticated user", error?.message);
+  // Optionally log error in production-safe way
     return null;
   }
 };
@@ -150,18 +154,20 @@ export const sendVerificationCode = async (req, res) => {
   }
 };
 
-// VERIFY code
+// VERIFY email code
 export const verifyEmailWithCode = async (req, res) => {
   try {
-    const { email, code } = req.body;
+    // Accept either { email, code } in body (existing) OR { token } in body
+    const { email, code, token } = req.body || {};
 
     const normalizedEmail = email ? String(email).trim().toLowerCase() : "";
+    const verificationToken = token || code;
 
-    if (!normalizedEmail || !code) {
-      return handleResponse(res, 400, "Email and token are required");
+    if (!verificationToken) {
+      return handleResponse(res, 400, "Email or token is required");
     }
 
-    const verifiedUser = await verifyCodeService(normalizedEmail, code);
+    const verifiedUser = await verifyCodeService(normalizedEmail, verificationToken);
 
     if (!verifiedUser) {
       return handleResponse(res, 400, "Invalid or expired verification link");
@@ -178,6 +184,33 @@ export const verifyEmailWithCode = async (req, res) => {
   }
 };
 
+// GET handler for token-based verification links (used by manual link opens)
+export const verifyEmailByTokenController = async (req, res) => {
+  try {
+    const token = req.query?.token || req.query?.code;
+    const email = req.query?.email || req.query?.Email || "";
+
+    if (!token) {
+      // For legacy flows, return HTML page indicating failure
+      return res.status(400).send(buildLegacyResponse('Invalid or missing verification token.'));
+    }
+
+    const normalizedEmail = email ? String(email).trim().toLowerCase() : "";
+
+    const verifiedUser = await verifyCodeService(normalizedEmail, token);
+
+    if (!verifiedUser) {
+      return res.status(400).send(buildLegacyResponse('The verification link is invalid or has expired.'));
+    }
+
+    return res.status(200).send(buildLegacyResponse('Thank you — your email has been verified.'));
+  } catch (error) {
+    console.error('Token verification failed', error);
+    return res.status(500).send(buildLegacyResponse('An error occurred while verifying your email.'));
+  }
+};
+
+// RESEND verification code (with optional overwrite)
 export const resendVerificationCodeController = async (req, res) => {
   try {
     const rawEmail = resolveEmail(req);
@@ -232,6 +265,7 @@ export const resendVerificationCodeController = async (req, res) => {
   }
 };
 
+// LEGACY resend verification link controller
 export const resendVerificationLinkLegacy = async (req, res) => {
   const genericMessage =
     "If this account exists, we've sent a fresh verification link. Please check your inbox and use the most recent email.";

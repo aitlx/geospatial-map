@@ -263,10 +263,12 @@ const fetchUserbyIdService = async (userid) => {
   }
 };
 
-// fetch user by email
+// fetch user by email (case-insensitive, trims input)
 const fetchUserByEmailService = async (email) => {
-  const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
-  return result.rows[0]; // returns user if found, otherwise undefined
+  if (!email) return null;
+  const normalized = String(email).trim().toLowerCase();
+  const result = await pool.query("SELECT * FROM users WHERE LOWER(email) = $1", [normalized]);
+  return result.rows[0] ?? null; // returns user object or null
 };
 
 // create user

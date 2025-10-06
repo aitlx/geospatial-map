@@ -1,11 +1,11 @@
-import crypto from "crypto";
-import { sendEmail } from "../utils/sendEmail.js";
-import pool from "../config/db.js";
+import crypto from 'crypto';
+import { sendEmail } from '../utils/sendEmail.js';
+import pool from '../config/db.js';
 
 export class EmailDeliveryError extends Error {
   constructor(message, options = {}) {
     super(message);
-    this.name = "EmailDeliveryError";
+    this.name = 'EmailDeliveryError';
     this.verificationUrl = options.verificationUrl ?? null;
     this.cause = options.cause;
   }
@@ -20,6 +20,7 @@ const ensureVerificationTable = async () => {
 
   ensureTablePromise = (async () => {
     try {
+      // Creating the email verification table if it doesn't exist
       await pool.query(`
         CREATE TABLE IF NOT EXISTS email_verification_codes (
           id SERIAL PRIMARY KEY,
@@ -31,6 +32,7 @@ const ensureVerificationTable = async () => {
         )
       `);
 
+      // Adding indexes for quick searches
       await pool.query(`
         CREATE INDEX IF NOT EXISTS email_verification_codes_user_id_idx
           ON email_verification_codes (user_id)
@@ -41,49 +43,43 @@ const ensureVerificationTable = async () => {
           ON email_verification_codes (code)
       `);
     } catch (error) {
-      console.error("Failed to ensure email_verification_codes table", error);
+      console.error('Failed to ensure email_verification_codes table:', error.message);
       throw error;
     }
   })();
 
-  try {
-    await ensureTablePromise;
-  } catch (error) {
-    ensureTablePromise = null;
-    throw error;
-  }
+  return ensureTablePromise;
 };
 
 const resolveVerificationUrl = (email, token) => {
   const origin =
     process.env.VERIFICATION_LINK_ORIGIN ||
     process.env.FRONTEND_URL ||
-    "http://localhost:5173";
-  const path = process.env.VERIFICATION_LINK_PATH || "/verify-email";
+    'http://localhost:5173';
+  const path = process.env.VERIFICATION_LINK_PATH || '/verify-email';
 
   let url;
   try {
     url = new URL(path, origin);
   } catch (error) {
-    url = new URL("/verify-email", "http://localhost:5173");
+    url = new URL('/verify-email', 'http://localhost:5173');
   }
 
-  url.searchParams.set("email", email);
-  url.searchParams.set("code", token);
+  url.searchParams.set('email', email);
+  url.searchParams.set('token', token);
 
   return url.toString();
 };
 
-// send a new verification code
 export const sendVerificationCode = async (user, isResend = false) => {
   try {
-    const token = crypto.randomBytes(32).toString("hex");
+    const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // expires in 1 hour
-    const normalizedEmail = String(user.email || "").trim().toLowerCase();
+    const normalizedEmail = String(user.email || '').trim().toLowerCase();
 
     await ensureVerificationTable();
 
-    // if resend, clear old codes
+    // Resend logic
     if (isResend) {
       await pool.query(
         `DELETE FROM email_verification_codes WHERE user_id = $1 AND is_used = FALSE`,
@@ -91,14 +87,14 @@ export const sendVerificationCode = async (user, isResend = false) => {
       );
     }
 
-    await pool.query(
+    const insertResult = await pool.query(
       `INSERT INTO email_verification_codes (user_id, code, expires_at)
-       VALUES ($1, $2, $3)`,
+       VALUES ($1, $2, $3) RETURNING *`,
       [user.userid, token, expiresAt]
     );
 
     const verificationUrl = resolveVerificationUrl(normalizedEmail, token);
-    const firstName = user.firstname || user.firstName || user.name || "there";
+    const firstName = user.firstname || user.firstName || user.name || 'there';
 
     const text = `Hello ${firstName},\n\n` +
       `Please verify your email address by visiting the link below within the next hour:\n${verificationUrl}\n\n` +
@@ -119,67 +115,80 @@ export const sendVerificationCode = async (user, isResend = false) => {
     try {
       await sendEmail({
         to: normalizedEmail,
-        subject: "Confirm your email address",
+        subject: 'Confirm your email address',
         text,
         html,
       });
 
-      console.log(`${isResend ? "Resent" : "Sent"} verification link to ${user.email}`);
+      console.log(`${isResend ? 'Resent' : 'Sent'} verification link to ${user.email}`);
     } catch (transportError) {
-      console.error("sendVerificationCode email delivery failed:", transportError);
-      throw new EmailDeliveryError("Email delivery failed", {
+      console.error('sendVerificationCode email delivery failed:', transportError.message);
+      throw new EmailDeliveryError('Email delivery failed', {
         verificationUrl,
-        cause: transportError,
+        cause: transportError.message,
       });
     }
 
     return { verificationUrl };
   } catch (err) {
-    if (err instanceof EmailDeliveryError) {
-      throw err;
-    }
-
-    console.error("sendVerificationCode failed:", err);
-    throw new Error("Could not send verification email");
+    // Log the error message and stack trace for deeper insights
+    console.error('sendVerificationCode failed:', err.message);
+    console.error(err.stack);
+    throw new Error('Could not send verification email');
   }
 };
 
-// verify the code
-export const verifyCodeService = async (email, code) => {
-  const normalizedEmail = email ? String(email).trim().toLowerCase() : "";
-  if (!normalizedEmail) {
-    return null;
-  }
+
+export const verifyCodeService = async (email, token) => {
+  const normalizedEmail = email ? String(email).trim().toLowerCase() : '';
+  if (!token) return null;
 
   await ensureVerificationTable();
 
-  const userResult = await pool.query(
-    `SELECT userid FROM users WHERE email=$1`,
-    [normalizedEmail]
+  let userId = null;
+
+  if (normalizedEmail) {
+    // If email provided, validate it and find user id
+    const userResult = await pool.query(
+      `SELECT userid FROM users WHERE email=$1 LIMIT 1`,
+      [normalizedEmail]
+    );
+    if (!userResult.rows[0]) return null;
+    userId = userResult.rows[0].userid;
+
+    // Check for the corresponding verification code in the database for this user
+    const codeResult = await pool.query(
+      `SELECT * FROM email_verification_codes
+       WHERE user_id = $1 AND code = $2 AND is_used = FALSE AND expires_at > NOW() LIMIT 1`,
+      [userId, token]
+    );
+
+    const record = codeResult.rows[0];
+    if (!record) return null;
+
+    // Mark the code as used
+    await pool.query(`UPDATE email_verification_codes SET is_used = TRUE WHERE id = $1`, [record.id]);
+
+    // Mark the user as verified
+    const updatedUser = await pool.query(`UPDATE users SET is_verified = TRUE WHERE userid = $1 RETURNING *`, [userId]);
+    return updatedUser.rows[0];
+  }
+
+  // If email not provided, try to find the code record directly by token
+  const directResult = await pool.query(
+    `SELECT * FROM email_verification_codes WHERE code = $1 AND is_used = FALSE AND expires_at > NOW() LIMIT 1`,
+    [token]
   );
-  if (!userResult.rows[0]) return null;
 
-  const userId = userResult.rows[0].userid;
+  const directRecord = directResult.rows[0];
+  if (!directRecord) return null;
 
-  const codeResult = await pool.query(
-    `SELECT * FROM email_verification_codes
-     WHERE user_id = $1 AND code = $2 
-       AND is_used = FALSE AND expires_at > NOW()`,
-    [userId, code]
-  );
+  userId = directRecord.user_id;
 
-  const record = codeResult.rows[0];
-  if (!record) return null;
+  // Mark the code as used
+  await pool.query(`UPDATE email_verification_codes SET is_used = TRUE WHERE id = $1`, [directRecord.id]);
 
-  await pool.query(
-    `UPDATE email_verification_codes SET is_used = TRUE WHERE id = $1`,
-    [record.id]
-  );
-
-  const updatedUser = await pool.query(
-    `UPDATE users SET is_verified = TRUE WHERE userid = $1 RETURNING *`,
-    [userId]
-  );
-
+  // Mark the user as verified
+  const updatedUser = await pool.query(`UPDATE users SET is_verified = TRUE WHERE userid = $1 RETURNING *`, [userId]);
   return updatedUser.rows[0];
 };

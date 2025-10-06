@@ -387,26 +387,7 @@ export const updateUser = async (req, res, next) => {
         : sanitizeContactNumber(contactNumber);
     const wantsExplicitNull = hasContactNumber && contactNumber === null;
 
-    if (process.env.NODE_ENV !== "production") {
-      console.debug("updateUser contact number", {
-        incoming: contactNumber,
-        sanitizedIncomingContact,
-        sanitizedExistingContact,
-        wantsExplicitNull,
-        hasContactNumber,
-      });
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      console.debug("updateUser payload preview", {
-        firstname: firstname?.trim() ?? existing.firstname,
-        lastname: lastname?.trim() ?? existing.lastname,
-        birthday: birthday ?? existing.birthday,
-        gender: nextGender,
-        email: nextEmail,
-        requestedRoleId,
-      });
-    }
+    // ...existing code...
 
     const nextContactNumber = hasContactNumber
       ? wantsExplicitNull
