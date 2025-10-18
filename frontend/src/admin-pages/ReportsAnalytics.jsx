@@ -1,688 +1,275 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+﻿import React, { useEffect, useMemo, useRef, useState } from "react"
 import axios from "axios"
-import {
-  BarChart2,
-  TrendingUp,
-  Percent,
-  FileDown,
-  Filter,
-  RefreshCw,
-  Loader2,
-  AlertCircle,
-  Sprout,
-} from "lucide-react"
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  LineChart,
-  Line,
-} from "recharts"
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts"
 
-const NUMBER_FORMAT = new Intl.NumberFormat("en-PH", { maximumFractionDigits: 0 })
-const NUMBER_FORMAT_WITH_DECIMALS = new Intl.NumberFormat("en-PH", { maximumFractionDigits: 2 })
-const CURRENCY_FORMAT = new Intl.NumberFormat("en-PH", {
-  style: "currency",
-  currency: "PHP",
-  maximumFractionDigits: 0,
-})
+// reports page - filters, preview, downloads
 
-const currentYear = new Date().getFullYear()
-const YEAR_OPTIONS = Array.from({ length: 6 }).map((_, index) => String(currentYear - index))
-const SEASON_OPTIONS = [
-  { value: "all", label: "All seasons" },
-  { value: "dry", label: "Dry" },
-  { value: "wet", label: "Wet" },
-  { value: "summer", label: "Summer" },
-  { value: "rainy", label: "Rainy" },
-  { value: "harvest", label: "Harvest" },
-  { value: "peak", label: "Peak" },
-  { value: "lean", label: "Lean" },
-]
+const CURRENT_YEAR = new Date().getFullYear()
+const YEAR_OPTIONS = Array.from({ length: 6 }).map((_, i) => String(CURRENT_YEAR - i))
+const SEASONS = ["All", "Wet", "Dry"]
 
-const LIMIT_OPTIONS = [5, 8, 10]
-
-const safeNumber = (value, fallback = 0) => {
-  if (value === null || value === undefined) return fallback
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
-}
-
-const normalizeTopCrop = (candidate) => {
-  if (!candidate || typeof candidate !== "object") return null
-  const cropId = candidate.crop_id ?? candidate.cropId ?? null
-  const cropName = candidate.crop_name ?? candidate.cropName ?? "Unnamed crop"
-  const totalYield = safeNumber(candidate.total_yield ?? candidate.totalYield)
-  const averagePrice = safeNumber(candidate.average_price ?? candidate.averagePrice)
-  const averageScore = safeNumber(candidate.average_score ?? candidate.averageScore)
-
-  return {
-    cropId,
-    cropName,
-    totalYield,
-    averagePrice,
-    averageScore,
-  }
-}
-
-const normalizeRecommendation = (candidate) => {
-  if (!candidate || typeof candidate !== "object") return null
-  const cropId = candidate.crop_id ?? candidate.cropId ?? null
-  const cropName = candidate.crop_name ?? candidate.cropName ?? "Unnamed crop"
-  const averageYield = safeNumber(candidate.avg_yield ?? candidate.average_yield ?? candidate.averageYield)
-  const averagePrice = safeNumber(candidate.avg_price ?? candidate.average_price ?? candidate.averagePrice)
-  const score = safeNumber(candidate.score)
-  const recommendationCount = safeNumber(candidate.recommendation_count ?? candidate.count ?? candidate.total)
-  const firstYear = candidate.first_year ?? candidate.firstYear ?? null
-  const latestYear = candidate.latest_year ?? candidate.latestYear ?? null
-
-  return {
-    cropId,
-    cropName,
-    averageYield,
-    averagePrice,
-    score,
-    recommendationCount,
-    firstYear,
-    latestYear,
-  }
-}
-
-const buildSeasonLabel = (season) => {
-  if (!season || season === "all") return "All seasons"
-  return season
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ")
-}
-
-const formatNumber = (value) => NUMBER_FORMAT.format(safeNumber(value))
-const formatNumberWithDecimals = (value) => NUMBER_FORMAT_WITH_DECIMALS.format(safeNumber(value))
-const formatCurrency = (value) => CURRENCY_FORMAT.format(Math.max(0, safeNumber(value)))
-
-const toCsvValue = (value) => {
-  if (value === null || value === undefined) return ""
-  if (typeof value === "string") {
-    if (value.includes(",") || value.includes("\"")) {
-      return `"${value.replace(/"/g, '""')}"`
-    }
-    return value
-  }
-  return String(value)
-}
-
-const buildCsv = (rows) => {
-  const header = [
-    "Crop",
-    "Total Yield",
-    "Average Yield",
-    "Average Price",
-    "Average Score",
-    "Recommendations",
-    "First Year",
-    "Latest Year",
-  ]
-
-  const lines = rows.map((row) =>
-    [
-      toCsvValue(row.cropName),
-      toCsvValue(row.totalYield ?? ""),
-      toCsvValue(row.averageYield ?? ""),
-      toCsvValue(row.averagePrice ?? ""),
-      toCsvValue(row.averageScore ?? row.score ?? ""),
-      toCsvValue(row.recommendationCount ?? ""),
-      toCsvValue(row.firstYear ?? ""),
-      toCsvValue(row.latestYear ?? ""),
-    ].join(","),
-  )
-
-  return [header.join(","), ...lines].join("\n")
+// escape csv values
+const toCsvValue = (v) => {
+  if (v === null || v === undefined) return ""
+  const s = String(v)
+  return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 export default function ReportsAnalytics() {
-  const [filters, setFilters] = useState({
-    season: "all",
-    year: YEAR_OPTIONS[0],
-    limit: LIMIT_OPTIONS[1],
-  })
-  const [topCrops, setTopCrops] = useState([])
-  const [recommendations, setRecommendations] = useState([])
+  // Filters state
+  const [reportType, setReportType] = useState("Yield Report")
+  const [year, setYear] = useState(String(CURRENT_YEAR))
+  const [season, setSeason] = useState("All")
+  const [barangay, setBarangay] = useState("All")
+  const [cropType, setCropType] = useState("All")
+
+  // Data and loading/error state
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-  const [lastUpdated, setLastUpdated] = useState(null)
-  const placeholderActive = true
+  const [error, setError] = useState(null)
+  const [data, setData] = useState(null) // server result: { type: 'table'|'chart', rows: [...] }
 
-  const fetchAnalytics = useCallback(async () => {
+  // Local dropdown lists (can be replaced by real backend endpoints)
+  const [barangayOptions, setBarangayOptions] = useState(["All"])
+  const [cropOptions, setCropOptions] = useState(["All"])
+
+  // printable ref for print/export
+  const printableRef = useRef(null)
+
+  // load lookup lists (barangays, crops)
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const [bResp, cResp] = await Promise.allSettled([
+          axios.get("/api/locations/barangays", { withCredentials: true }),
+          axios.get("/api/crops/list", { withCredentials: true }),
+        ])
+        if (!mounted) return
+        if (bResp.status === "fulfilled" && Array.isArray(bResp.value.data)) {
+          setBarangayOptions(["All", ...bResp.value.data.map((b) => b.name)])
+        }
+        if (cResp.status === "fulfilled" && Array.isArray(cResp.value.data)) {
+          setCropOptions(["All", ...cResp.value.data.map((c) => c.name)])
+        }
+      // eslint-disable-next-line no-unused-vars
+      } catch (_err) {
+        // silent fallback to defaults
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  // generate report (calls /api/reports/generate)
+  const handleGenerate = async () => {
+    setError(null)
     setLoading(true)
-    setError("")
-
-    const topCropParams = { limit: filters.limit }
-    const recommendationsParams = { limit: filters.limit, groupBy: "crop" }
-
-    if (filters.year && filters.year !== "all") {
-      topCropParams.year = filters.year
-      recommendationsParams.year = filters.year
-    }
-
-    if (filters.season && filters.season !== "all") {
-      topCropParams.season = filters.season
-      recommendationsParams.season = filters.season
-    }
-
+    setData(null)
     try {
-      const [topCropResponse, recommendationResponse] = await Promise.all([
-        axios.get("/api/top-crops", { params: topCropParams, withCredentials: true }),
-        axios.get("/api/recommendations", { params: recommendationsParams, withCredentials: true }),
-      ])
+      const resp = await axios.get("/api/reports/generate", {
+        params: {
+          type: reportType,
+          year: year === "All" ? undefined : year,
+          season: season === "All" ? undefined : season,
+          barangay: barangay === "All" ? undefined : barangay,
+          crop: cropType === "All" ? undefined : cropType,
+        },
+        withCredentials: true,
+      })
 
-      const topRowsCandidate =
-        topCropResponse?.data?.data?.results ??
-        topCropResponse?.data?.data ??
-        topCropResponse?.data?.results ??
-        []
-
-      const recommendationRowsCandidate =
-        recommendationResponse?.data?.data?.results ??
-        recommendationResponse?.data?.data ??
-        recommendationResponse?.data?.results ??
-        []
-
-      const normalizedTopCrops = Array.isArray(topRowsCandidate)
-        ? topRowsCandidate.map(normalizeTopCrop).filter(Boolean)
-        : []
-
-      const normalizedRecommendations = Array.isArray(recommendationRowsCandidate)
-        ? recommendationRowsCandidate.map(normalizeRecommendation).filter(Boolean)
-        : []
-
-      setTopCrops(normalizedTopCrops)
-      setRecommendations(normalizedRecommendations)
-      setLastUpdated(new Date())
-    } catch (err) {
-      const message = err.response?.data?.message || err.message || "Failed to load analytics data."
-      setError(message)
-      setTopCrops([])
-      setRecommendations([])
+      // Expecting server response shape: { type: 'table'|'chart', rows: [...] }
+      if (resp?.data) {
+        setData(resp.data)
+      } else {
+        setData({ type: "table", rows: [{ note: "No data returned from server." }] })
+      }
+    // eslint-disable-next-line no-unused-vars
+    } catch (_err) {
+      setError("Failed to fetch report from server. You can try again.")
+      setData({ type: "table", rows: [{ note: "Sample data here" }] })
     } finally {
       setLoading(false)
     }
-  }, [filters.limit, filters.season, filters.year])
-
-  useEffect(() => {
-    if (placeholderActive) return
-    fetchAnalytics()
-  }, [fetchAnalytics, placeholderActive])
-
-
-  const totalYield = useMemo(
-    () => topCrops.reduce((sum, crop) => sum + safeNumber(crop.totalYield), 0),
-    [topCrops],
-  )
-
-  const averageScore = useMemo(() => {
-    if (!recommendations.length) return 0
-    const total = recommendations.reduce((sum, entry) => sum + safeNumber(entry.score), 0)
-    return total / recommendations.length
-  }, [recommendations])
-
-  const averagePrice = useMemo(() => {
-    if (!topCrops.length) return 0
-    const total = topCrops.reduce((sum, entry) => sum + safeNumber(entry.averagePrice), 0)
-    return total / topCrops.length
-  }, [topCrops])
-
-  const topPerformer = useMemo(() => {
-    if (!recommendations.length) return null
-    return [...recommendations].sort((a, b) => safeNumber(b.score) - safeNumber(a.score))[0]
-  }, [recommendations])
-
-  const chartData = useMemo(
-    () =>
-      topCrops.map((crop) => ({
-        name: crop.cropName,
-        yield: safeNumber(crop.totalYield),
-        score: safeNumber(crop.averageScore),
-      })),
-    [topCrops],
-  )
-
-  const trendData = useMemo(() => {
-    if (!recommendations.length) return []
-    return recommendations.map((entry) => ({
-      name: entry.cropName,
-      score: safeNumber(entry.score),
-      yield: safeNumber(entry.averageYield),
-    }))
-  }, [recommendations])
-
-  const lastUpdatedLabel = useMemo(() => {
-    if (!lastUpdated) return "—"
-    return lastUpdated.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })
-  }, [lastUpdated])
-
-  const handleFilterChange = (key, value) => {
-    setFilters((prev) => ({
-      ...prev,
-      [key]: key === "limit" ? Number(value) : value,
-    }))
   }
 
-  const handleExportCsv = () => {
-    if (typeof window === "undefined" || (!topCrops.length && !recommendations.length)) return
-
-    const dataset = topCrops.map((crop) => {
-      const recommendation = recommendations.find((entry) => entry.cropId === crop.cropId)
-      return {
-        cropName: crop.cropName,
-        totalYield: formatNumberWithDecimals(crop.totalYield),
-        averageYield: recommendation ? formatNumberWithDecimals(recommendation.averageYield) : "",
-        averagePrice: formatCurrency(crop.averagePrice).replace(/[^0-9.,-]/g, ""),
-        averageScore: recommendation
-          ? formatNumberWithDecimals(recommendation.score)
-          : formatNumberWithDecimals(crop.averageScore),
-        recommendationCount: recommendation?.recommendationCount ?? "",
-        firstYear: recommendation?.firstYear ?? "",
-        latestYear: recommendation?.latestYear ?? "",
-      }
-    })
-
-    const csvContent = buildCsv(dataset)
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    const seasonSlug = filters.season === "all" ? "all" : filters.season
-    const yearSlug = filters.year === "all" ? "all" : filters.year
-    link.download = `geoagritech-analytics-${yearSlug}-${seasonSlug}.csv`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(url)
+  // Download CSV helper
+  const handleDownloadCSV = () => {
+    if (!data || !Array.isArray(data.rows) || data.rows.length === 0) return
+    const rows = data.rows
+    const keys = Object.keys(rows[0])
+    const csv = [keys.join(",")].concat(rows.map((r) => keys.map((k) => toCsvValue(r[k])).join(","))).join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `report-${reportType.replace(/\s+/g, "-").toLowerCase()}-${year}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
   }
 
-  const emptyState = !loading && !topCrops.length && !recommendations.length
+  // download pdf (server-side ideally)
+  const handleDownloadPDF = async () => {
+    try {
+      const resp = await axios.get("/api/reports/generate-pdf", {
+        params: { type: reportType, year: year === "All" ? undefined : year, season: season === "All" ? undefined : season, barangay: barangay === "All" ? undefined : barangay, crop: cropType === "All" ? undefined : cropType },
+        responseType: "blob",
+        withCredentials: true,
+      })
+      const url = URL.createObjectURL(new Blob([resp.data], { type: "application/pdf" }))
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `report-${Date.now()}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    // eslint-disable-next-line no-unused-vars
+    } catch (_err) {
+      // Fallback to printing the printable section if server-side PDF isn't available
+      window.print()
+    }
+  }
 
-  if (placeholderActive) {
+  // preview renderer (table or chart)
+  const preview = useMemo(() => {
+    if (!data) {
+      return <div className="p-6 text-sm text-slate-600">No report generated yet. Choose filters and click "Generate Report".</div>
+    }
+
+    if (data.type === "chart") {
+      const chartData = Array.isArray(data.rows) ? data.rows.map((r) => ({ name: r.label || r.name || "", value: Number(r.value || r.count || 0) })) : []
+      if (!chartData.length) return <div className="p-6 text-sm text-slate-600">Loading chart…</div>
+      return (
+        <div className="h-64 w-full">
+          <ResponsiveContainer>
+            <BarChart data={chartData}>
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="value" fill="#16a34a" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )
+    }
+
+  // default table preview
+    const rows = Array.isArray(data.rows) ? data.rows : []
+    if (!rows.length) return <div className="p-6 text-sm text-slate-600">No data.</div>
+    const keys = Object.keys(rows[0])
     return (
-      <section className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-4 py-10 text-center text-slate-700 sm:px-6 lg:px-8">
-        <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-emerald-200 bg-emerald-50 text-emerald-600 shadow-sm">
-          <BarChart2 className="h-8 w-8" />
-        </div>
-        <div className="space-y-3">
-          <h1 className="text-3xl font-semibold tracking-[0.08em] text-emerald-800">Reports &amp; Analytics</h1>
-          <p className="mx-auto max-w-xl text-sm text-slate-500">
-            We're still polishing the analytics workspace so it can surface actionable insights you can trust. In the meantime,
-            you can continue managing submissions and approvals—the data powering this dashboard is being prepared behind the scenes.
-          </p>
-        </div>
-      </section>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm table-auto border-collapse">
+          <thead className="text-left text-xs text-slate-600">
+            <tr>{keys.map((k) => (<th key={k} className="border-b border-slate-200 px-3 py-2">{k}</th>))}</tr>
+          </thead>
+          <tbody>
+            {rows.map((r, idx) => (
+              <tr key={idx} className="odd:bg-white even:bg-slate-50">{keys.map((k) => (<td key={k} className="px-3 py-2">{String(r[k] ?? "")}</td>))}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     )
-  }
+  }, [data])
 
   return (
-    <section className="space-y-6 px-4 py-6 text-slate-800 sm:px-6 lg:px-8">
-      <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600">
-            <BarChart2 className="h-4 w-4" />
-            Analytics
-          </div>
-          <h1 className="mt-3 text-2xl font-semibold uppercase tracking-[0.08em] text-emerald-800">
-            Reports &amp; Analytics
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Explore performance insights across recommendations, yields, and pricing to drive barangay interventions.
-          </p>
-        </div>
-        <dl className="grid grid-cols-2 gap-3 text-xs text-slate-500">
-          <div className="rounded-xl border border-emerald-100 bg-white px-3 py-2">
-            <dt className="uppercase tracking-[0.25em] text-emerald-600">Season</dt>
-            <dd className="mt-1 font-semibold text-slate-900">{buildSeasonLabel(filters.season)}</dd>
-          </div>
-          <div className="rounded-xl border border-emerald-100 bg-white px-3 py-2">
-            <dt className="uppercase tracking-[0.25em] text-emerald-600">Year</dt>
-            <dd className="mt-1 font-semibold text-slate-900">{filters.year === "all" ? "All years" : filters.year}</dd>
-          </div>
-        </dl>
-      </header>
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      {/* header */}
+      <div className="mb-4">
+        <h1 className="text-2xl font-semibold text-emerald-900">Reports and Data Summaries</h1>
+        <p className="mt-1 text-sm text-slate-600">Generate and download summarized data based on yield, crops, or barangay performance.</p>
+      </div>
 
-      {error ? (
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4" />
-            <span>{error}</span>
-          </div>
-          <button
-            type="button"
-            onClick={fetchAnalytics}
-            className="rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:text-rose-700"
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-
-      <div className="rounded-3xl border border-emerald-100/70 bg-white/85 p-6 shadow-sm shadow-emerald-900/5">
+  {/* filters */}
+      <div className="rounded-lg border border-emerald-100 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-3">
-            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 shadow-sm">
-              <Filter className="h-4 w-4 text-emerald-500" />
-              <span className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Season</span>
-              <select
-                className="ml-3 text-sm font-medium text-slate-700 focus:outline-none"
-                value={filters.season}
-                onChange={(event) => handleFilterChange("season", event.target.value)}
-                disabled={loading}
-              >
-                {SEASON_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+          <div className="flex flex-wrap gap-3 items-center">
+            <label className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Report</span>
+              <select value={reportType} onChange={(e) => setReportType(e.target.value)} className="rounded-md border-gray-200 bg-white py-2 px-3 text-sm">
+                <option>Yield Report</option>
+                <option>Crop Report</option>
+                <option>Seasonal Report</option>
+                <option>Barangay Summary</option>
+                <option>Market Prices</option>
               </select>
             </label>
 
-            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 shadow-sm">
-              <Filter className="h-4 w-4 text-emerald-500" />
-              <span className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Year</span>
-              <select
-                className="ml-3 text-sm font-medium text-slate-700 focus:outline-none"
-                value={filters.year}
-                onChange={(event) => handleFilterChange("year", event.target.value)}
-                disabled={loading}
-              >
-                <option value="all">All years</option>
-                {YEAR_OPTIONS.map((yearOption) => (
-                  <option key={yearOption} value={yearOption}>
-                    {yearOption}
-                  </option>
-                ))}
+            <label className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Year</span>
+              <select value={year} onChange={(e) => setYear(e.target.value)} className="rounded-md border-gray-200 bg-white py-2 px-3 text-sm">
+                <option>All</option>
+                {YEAR_OPTIONS.map((y) => (<option key={y} value={y}>{y}</option>))}
               </select>
             </label>
 
-            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 shadow-sm">
-              <Filter className="h-4 w-4 text-emerald-500" />
-              <span className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Limit</span>
-              <select
-                className="ml-3 text-sm font-medium text-slate-700 focus:outline-none"
-                value={filters.limit}
-                onChange={(event) => handleFilterChange("limit", event.target.value)}
-                disabled={loading}
-              >
-                {LIMIT_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    Top {option}
-                  </option>
-                ))}
+            <label className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Season</span>
+              <select value={season} onChange={(e) => setSeason(e.target.value)} className="rounded-md border-gray-200 bg-white py-2 px-3 text-sm">
+                {SEASONS.map((s) => (<option key={s}>{s}</option>))}
+              </select>
+            </label>
+
+            <label className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Barangay</span>
+              <select value={barangay} onChange={(e) => setBarangay(e.target.value)} className="rounded-md border-gray-200 bg-white py-2 px-3 text-sm">
+                {barangayOptions.map((b) => (<option key={b}>{b}</option>))}
+              </select>
+            </label>
+
+            <label className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Crop</span>
+              <select value={cropType} onChange={(e) => setCropType(e.target.value)} className="rounded-md border-gray-200 bg-white py-2 px-3 text-sm">
+                {cropOptions.map((c) => (<option key={c}>{c}</option>))}
               </select>
             </label>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={fetchAnalytics}
-              className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-500/20"
-              disabled={loading}
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              {loading ? "Refreshing" : "Refresh"}
+          <div className="flex gap-2">
+            <button onClick={handleGenerate} disabled={loading} className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">
+              {loading ? "Generating…" : "Generate Report"}
             </button>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2 text-xs font-semibold text-white shadow-md transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={loading || (topCrops.length === 0 && recommendations.length === 0)}
-            >
-              <FileDown className="h-4 w-4" />
-              Export CSV
+            <button onClick={handleDownloadPDF} disabled={!data} className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-4 py-2 text-sm">
+              Download PDF
+            </button>
+            <button onClick={handleDownloadCSV} disabled={!data} className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-4 py-2 text-sm">
+              Download CSV
             </button>
           </div>
-        </div>
-
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <article className="rounded-2xl border border-emerald-100 bg-white/90 p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-500">Total yield</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-900">{formatNumber(totalYield)} MT</p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
-                <Sprout className="h-6 w-6" />
-              </div>
-            </div>
-          </article>
-
-          <article className="rounded-2xl border border-emerald-100 bg-white/90 p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-500">Avg score</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-900">{formatNumberWithDecimals(averageScore)}</p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
-                <Percent className="h-6 w-6" />
-              </div>
-            </div>
-          </article>
-
-          <article className="rounded-2xl border border-emerald-100 bg-white/90 p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-500">Avg market price</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-900">{formatCurrency(averagePrice)}</p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
-                <TrendingUp className="h-6 w-6" />
-              </div>
-            </div>
-          </article>
-
-          <article className="rounded-2xl border border-emerald-100 bg-white/90 p-5 text-sm text-slate-600 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-500">Last refreshed</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">{lastUpdatedLabel}</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Fetches top crops and aggregated recommendation scores to guide planning.
-            </p>
-          </article>
         </div>
       </div>
 
-      {emptyState ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-emerald-200 bg-emerald-50/60 px-8 py-12 text-center text-sm text-emerald-700">
-          <BarChart2 className="h-8 w-8" />
-          <p>No analytics data is available yet for the selected filters. Try a different season or year.</p>
+  {/* preview */}
+      <div className="mt-6 rounded-lg border border-emerald-100 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Preview</h2>
+          <div className="text-sm text-slate-500">{data ? (data.rows?.length ?? 0) + " rows" : "No data"}</div>
         </div>
-      ) : (
-        <>
-          <div className="grid gap-6 xl:grid-cols-[2fr,1fr]">
-            <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Yield contribution by crop</h2>
-                  <p className="text-xs text-slate-500">Ranking is based on total yield captured in AI recommendations.</p>
-                </div>
-              </div>
-              <div className="mt-6 h-[320px]">
-                {loading ? (
-                  <div className="flex h-full items-center justify-center text-emerald-500">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  </div>
-                ) : chartData.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                      <XAxis dataKey="name" tick={{ fill: "#334155", fontSize: 12 }} tickLine={false} axisLine={false} />
-                      <YAxis tick={{ fill: "#475569", fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                      <Tooltip
-                        cursor={{ fill: "rgba(16, 185, 129, 0.08)" }}
-                        contentStyle={{
-                          borderRadius: 12,
-                          border: "1px solid rgba(16, 185, 129, 0.18)",
-                          boxShadow: "0 12px 32px -12px rgba(16, 185, 129, 0.35)",
-                        }}
-                        formatter={(value, name) => [formatNumberWithDecimals(value), name === "yield" ? "Total yield" : "Average score"]}
-                      />
-                      <Legend verticalAlign="bottom" height={36} iconType="circle" formatter={(value) => (value === "yield" ? "Total yield" : "Average score")} />
-                      <Bar dataKey="yield" fill="#0f766e" radius={[10, 10, 0, 0]} name="yield" />
-                      <Bar dataKey="score" fill="#14b8a6" radius={[10, 10, 0, 0]} name="score" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/60 px-6 text-center text-sm text-emerald-700">
-                    Datasets are still aggregating. Capture more barangay recommendations to populate this chart.
-                  </div>
-                )}
-              </div>
-            </article>
 
-            <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Performance spotlight</h2>
-                <p className="text-xs text-slate-500">Identifies the highest scoring crop across the selected filters.</p>
-              </div>
-              <div className="mt-6 space-y-4">
-                {loading ? (
-                  <div className="flex h-32 items-center justify-center text-emerald-500">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  </div>
-                ) : topPerformer ? (
-                  <div className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
-                    <div className="flex items-center justify-between">
-                      <p className="text-lg font-semibold text-emerald-800">{topPerformer.cropName}</p>
-                      <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-600">
-                        Score {formatNumberWithDecimals(topPerformer.score)}
-                      </span>
-                    </div>
-                    <dl className="grid grid-cols-2 gap-3 text-xs text-emerald-700">
-                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
-                        <dt className="uppercase tracking-[0.2em] text-emerald-500">Avg yield</dt>
-                        <dd className="mt-1 text-base font-semibold text-emerald-800">
-                          {formatNumberWithDecimals(topPerformer.averageYield)} MT
-                        </dd>
-                      </div>
-                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
-                        <dt className="uppercase tracking-[0.2em] text-emerald-500">Avg price</dt>
-                        <dd className="mt-1 text-base font-semibold text-emerald-800">
-                          {formatCurrency(topPerformer.averagePrice)}
-                        </dd>
-                      </div>
-                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
-                        <dt className="uppercase tracking-[0.2em] text-emerald-500">Recommendations</dt>
-                        <dd className="mt-1 text-base font-semibold text-emerald-800">
-                          {formatNumber(topPerformer.recommendationCount)}
-                        </dd>
-                      </div>
-                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
-                        <dt className="uppercase tracking-[0.2em] text-emerald-500">Coverage</dt>
-                        <dd className="mt-1 text-base font-semibold text-emerald-800">
-                          {topPerformer.firstYear ?? "—"} – {topPerformer.latestYear ?? "—"}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/60 p-6 text-sm text-emerald-700">
-                    No crop has accumulated enough recommendations to build a spotlight yet. Try widening the filters.
-                  </div>
-                )}
-              </div>
-            </article>
+        <div className="mt-4">{error ? <div className="text-sm text-red-600">{error}</div> : preview}</div>
+      </div>
+
+      {/* printable footer */}
+      <div ref={printableRef} className="mt-6 rounded-lg border border-emerald-100 bg-white p-4 shadow-sm print:bg-white">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          <div>
+            <div className="text-xs text-slate-500">Prepared by</div>
+            <div className="font-medium">{ /* replace with user name */ }Admin Name</div>
           </div>
-
-          <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Top performing crops</h2>
-                <p className="text-xs text-slate-500">Blends recommendation scores with total recorded yield to inform program focus.</p>
-              </div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-600">
-                Showing top {filters.limit}
-              </span>
-            </div>
-            <div className="mt-6 overflow-x-auto rounded-2xl border border-emerald-100">
-              <table className="min-w-full text-sm">
-                <thead className="bg-emerald-50/70 text-xs uppercase tracking-[0.2em] text-emerald-600">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-semibold">Crop</th>
-                    <th className="px-4 py-3 text-right font-semibold">Total yield (MT)</th>
-                    <th className="px-4 py-3 text-right font-semibold">Avg score</th>
-                    <th className="px-4 py-3 text-right font-semibold">Avg price</th>
-                    <th className="px-4 py-3 text-right font-semibold">Recommendations</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topCrops.map((crop) => {
-                    const recommendation = recommendations.find((entry) => entry.cropId === crop.cropId)
-                    return (
-                      <tr key={crop.cropId ?? crop.cropName} className="border-b border-emerald-100/60 last:border-b-0">
-                        <td className="px-4 py-3 font-semibold text-slate-900">{crop.cropName}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{formatNumberWithDecimals(crop.totalYield)}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">
-                          {formatNumberWithDecimals(recommendation ? recommendation.score : crop.averageScore)}
-                        </td>
-                        <td className="px-4 py-3 text-right text-slate-700">{formatCurrency(crop.averagePrice)}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">
-                          {recommendation ? formatNumber(recommendation.recommendationCount) : "—"}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </article>
-
-          {trendData.length ? (
-            <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Score vs. yield trend</h2>
-                  <p className="text-xs text-slate-500">Helps spot crops that balance strong scores with reliable yields.</p>
-                </div>
-              </div>
-              <div className="mt-6 h-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                    <XAxis dataKey="name" tick={{ fill: "#334155", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis yAxisId="left" tick={{ fill: "#475569", fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
-                      tick={{ fill: "#475569", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: 12,
-                        border: "1px solid rgba(14, 165, 233, 0.18)",
-                        boxShadow: "0 12px 32px -12px rgba(14, 165, 233, 0.35)",
-                      }}
-                      formatter={(value, name) =>
-                        [
-                          formatNumberWithDecimals(value),
-                          name === "score" ? "Average score" : "Average yield",
-                        ]
-                      }
-                    />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                    <Line type="monotone" yAxisId="left" dataKey="score" stroke="#0f766e" strokeWidth={2} dot={{ r: 4 }} />
-                    <Line type="monotone" yAxisId="right" dataKey="yield" stroke="#22d3ee" strokeWidth={2} dot={{ r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </article>
-          ) : null}
-        </>
-      )}
-    </section>
+          <div>
+            <div className="text-xs text-slate-500">Approved by</div>
+            <div className="font-medium">{ /* replace with signatory */ }Director</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Date generated</div>
+            <div className="font-medium">{new Date().toLocaleDateString()}</div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

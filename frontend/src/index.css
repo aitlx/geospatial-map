@@ -12,6 +12,28 @@
 	--font-size-2xl: 1.875rem;
 }
 
+/* Header / sidebar layout variables to keep sidebars aligned with header height
+	 These values match the project's responsive header sizing (approximate).
+	 Adjust the values if you change header padding/sizes later. */
+:root {
+	--header-height: 3rem; /* default small/medium screens (reduced for compact header) */
+	--sidebar-top: 0; /* by default the sidebar starts at top; overwritten on md/lg */
+}
+
+@media (min-width: 768px) {
+	:root {
+		--header-height: 3rem; /* md: compact header */
+		--sidebar-top: var(--header-height);
+	}
+}
+
+@media (min-width: 1024px) {
+	:root {
+		--header-height: 3.5rem; /* lg: slightly taller header */
+		--sidebar-top: var(--header-height);
+	}
+}
+
 html {
 	font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 	font-feature-settings: "salt";
@@ -24,6 +46,11 @@ body {
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 	transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Ensure main content sits below the header (header sets --sidebar-top dynamically) */
+.app-content {
+	padding-top: var(--sidebar-top);
 }
 
 html.dark body {

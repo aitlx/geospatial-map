@@ -7,7 +7,7 @@ import {
   verifyCodeService,
 } from "../services/emailVerificationService.js";
 
-// Helper to build legacy response for email verification
+// legacy html response builder for email verification
 const buildLegacyResponse = (message) => `<!doctype html>
 <html lang="en">
   <head>
@@ -33,7 +33,7 @@ const buildLegacyResponse = (message) => `<!doctype html>
   </body>
 </html>`;
 
-// Extract JWT token from cookies or authorization header
+// extract token from cookies or authorization header
 const extractToken = (req) => {
   if (req.cookies?.token) {
     return req.cookies.token;
@@ -47,7 +47,7 @@ const extractToken = (req) => {
   return null;
 };
 
-// Resolve email from different possible locations in request
+// resolve email from body/query/params
 const resolveEmail = (req) => {
   const candidates = [
     req.body?.email,
@@ -66,7 +66,7 @@ const resolveEmail = (req) => {
   return "";
 };
 
-// Resolve authenticated user by decoding JWT and querying the DB
+// resolve authenticated user via jwt and db lookup
 const resolveAuthenticatedUser = async (req) => {
   const token = extractToken(req);
   if (!token || !process.env.JWT_SECRET) {
@@ -94,12 +94,11 @@ const resolveAuthenticatedUser = async (req) => {
     const user = userResult.rows[0];
     return user ? { user, email: tokenEmail } : null;
   } catch (error) {
-  // Optionally log error in production-safe way
     return null;
   }
 };
 
-// SEND verification code
+// send verification code (link)
 export const sendVerificationCode = async (req, res) => {
   try {
     const rawEmail = resolveEmail(req);
@@ -135,9 +134,8 @@ export const sendVerificationCode = async (req, res) => {
       email: normalizedEmail,
     };
 
-    // send code (via service)
+  // send verification link (jwt signed)
     const result = await sendVerificationCodeService(user);
-
     return handleResponse(res, 200, "Verification link sent successfully", {
       verificationUrl: result?.verificationUrl ?? null,
     });
@@ -154,10 +152,10 @@ export const sendVerificationCode = async (req, res) => {
   }
 };
 
-// VERIFY email code
+// verify email with code or token
 export const verifyEmailWithCode = async (req, res) => {
   try {
-    // Accept either { email, code } in body (existing) OR { token } in body
+  // accept body { email, code } or { token }
     const { email, code, token } = req.body || {};
 
     const normalizedEmail = email ? String(email).trim().toLowerCase() : "";
@@ -167,6 +165,7 @@ export const verifyEmailWithCode = async (req, res) => {
       return handleResponse(res, 400, "Email or token is required");
     }
 
+  // verify signed token/link
     const verifiedUser = await verifyCodeService(normalizedEmail, verificationToken);
 
     if (!verifiedUser) {
@@ -184,14 +183,14 @@ export const verifyEmailWithCode = async (req, res) => {
   }
 };
 
-// GET handler for token-based verification links (used by manual link opens)
+// get handler for token-based verification links (legacy link opens)
 export const verifyEmailByTokenController = async (req, res) => {
   try {
     const token = req.query?.token || req.query?.code;
     const email = req.query?.email || req.query?.Email || "";
 
     if (!token) {
-      // For legacy flows, return HTML page indicating failure
+      // for legacy flows, return html page indicating failure
       return res.status(400).send(buildLegacyResponse('Invalid or missing verification token.'));
     }
 
@@ -210,7 +209,7 @@ export const verifyEmailByTokenController = async (req, res) => {
   }
 };
 
-// RESEND verification code (with optional overwrite)
+// resend verification code (with optional overwrite)
 export const resendVerificationCodeController = async (req, res) => {
   try {
     const rawEmail = resolveEmail(req);
@@ -246,7 +245,7 @@ export const resendVerificationCodeController = async (req, res) => {
       email: normalizedEmail,
     };
 
-    // send new code and mark old ones unused
+  // send new code and mark old codes unused
     const result = await sendVerificationCodeService(user, true);
 
     return handleResponse(res, 200, "Verification link resent successfully", {
@@ -265,7 +264,7 @@ export const resendVerificationCodeController = async (req, res) => {
   }
 };
 
-// LEGACY resend verification link controller
+// legacy resend verification link handler
 export const resendVerificationLinkLegacy = async (req, res) => {
   const genericMessage =
     "If this account exists, we've sent a fresh verification link. Please check your inbox and use the most recent email.";

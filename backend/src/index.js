@@ -16,6 +16,8 @@ import approvalRoutes from "./routes/approvalRoutes.js";
 import barangayRoute from "./routes/barangayRoute.js";
 import logRoutes from "./routes/logRoutes.js";
 import backupRoutes from "./routes/backupRoutes.js";
+import cron from 'node-cron'
+import backupService from './services/backupService.js'
 import notificationRoutes from "./routes/notificationRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import recommendationRoutes from "./routes/recommendationRoutes.js";
@@ -35,7 +37,7 @@ if (!fs.existsSync(uploadDir)) {
 
 app.use(
   cors({
-    origin: "https://geospatail-map.netlify.app/",
+    origin: "http://localhost:5173",
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   })
@@ -82,3 +84,26 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
+
+// Schedule weekly backup: Sunday at 02:00
+if (process.env.ENABLE_BACKUP_CRON === 'true') {
+  try {
+    cron.schedule('0 2 * * 0', async () => {
+      console.log('[cron] running weekly backup')
+      try {
+        const { sqlPath, outArchive } = await backupService.createDatabaseBackup('weekly')
+        await backupService.compressBackup(sqlPath, outArchive)
+        const stat = await (await import('fs-extra')).stat(outArchive)
+        const sizeMb = Number((stat.size / (1024 * 1024)).toFixed(2))
+        await backupService.saveBackupLog('weekly', require('path').basename(outArchive), sizeMb, 'completed')
+        await (await import('fs-extra')).remove(sqlPath).catch(() => null)
+        console.log('[cron] weekly backup completed', outArchive)
+      } catch (err) {
+        console.error('[cron] weekly backup failed', err?.message || err)
+        try { await backupService.saveBackupLog('weekly', `failed_${Date.now()}.tar.gz`, null, 'failed', String(err?.message || err)) } catch {}
+      }
+    })
+  } catch (err) {
+    console.warn('failed to schedule backup cron', err?.message || err)
+  }
+}

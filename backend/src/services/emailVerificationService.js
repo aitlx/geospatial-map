@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { sendEmail } from '../utils/sendEmail.js';
 import pool from '../config/db.js';
 
@@ -10,46 +10,6 @@ export class EmailDeliveryError extends Error {
     this.cause = options.cause;
   }
 }
-
-let ensureTablePromise = null;
-
-const ensureVerificationTable = async () => {
-  if (ensureTablePromise) {
-    return ensureTablePromise;
-  }
-
-  ensureTablePromise = (async () => {
-    try {
-      // Creating the email verification table if it doesn't exist
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS email_verification_codes (
-          id SERIAL PRIMARY KEY,
-          user_id INTEGER NOT NULL REFERENCES users(userid) ON DELETE CASCADE,
-          code VARCHAR(128) NOT NULL,
-          expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-          is_used BOOLEAN DEFAULT FALSE,
-          created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
-        )
-      `);
-
-      // Adding indexes for quick searches
-      await pool.query(`
-        CREATE INDEX IF NOT EXISTS email_verification_codes_user_id_idx
-          ON email_verification_codes (user_id)
-      `);
-
-      await pool.query(`
-        CREATE INDEX IF NOT EXISTS email_verification_codes_code_idx
-          ON email_verification_codes (code)
-      `);
-    } catch (error) {
-      console.error('Failed to ensure email_verification_codes table:', error.message);
-      throw error;
-    }
-  })();
-
-  return ensureTablePromise;
-};
 
 const resolveVerificationUrl = (email, token) => {
   const origin =
@@ -65,40 +25,29 @@ const resolveVerificationUrl = (email, token) => {
     url = new URL('/verify-email', 'http://localhost:5173');
   }
 
-  url.searchParams.set('email', email);
+  if (email) url.searchParams.set('email', email);
   url.searchParams.set('token', token);
 
   return url.toString();
 };
 
+// Send a verification link signed with JWT (no DB table)
 export const sendVerificationCode = async (user, isResend = false) => {
   try {
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // expires in 1 hour
+    if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not configured');
+
     const normalizedEmail = String(user.email || '').trim().toLowerCase();
 
-    await ensureVerificationTable();
-
-    // Resend logic
-    if (isResend) {
-      await pool.query(
-        `DELETE FROM email_verification_codes WHERE user_id = $1 AND is_used = FALSE`,
-        [user.userid]
-      );
-    }
-
-    const insertResult = await pool.query(
-      `INSERT INTO email_verification_codes (user_id, code, expires_at)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [user.userid, token, expiresAt]
+    const token = jwt.sign(
+      { userid: user.userid, email: normalizedEmail },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.VERIFICATION_LINK_EXPIRES || '1h' }
     );
 
     const verificationUrl = resolveVerificationUrl(normalizedEmail, token);
     const firstName = user.firstname || user.firstName || user.name || 'there';
 
-    const text = `Hello ${firstName},\n\n` +
-      `Please verify your email address by visiting the link below within the next hour:\n${verificationUrl}\n\n` +
-      `If you did not request this, you can safely ignore this message.`;
+    const text = `Hello ${firstName},\n\nPlease verify your email address by visiting the link below within the next hour:\n${verificationUrl}\n\nIf you did not request this, you can safely ignore this message.`;
 
     const html = `
       <p>Hello <b>${firstName}</b>,</p>
@@ -113,82 +62,53 @@ export const sendVerificationCode = async (user, isResend = false) => {
     `;
 
     try {
-      await sendEmail({
-        to: normalizedEmail,
-        subject: 'Confirm your email address',
-        text,
-        html,
-      });
-
-      console.log(`${isResend ? 'Resent' : 'Sent'} verification link to ${user.email}`);
+      await sendEmail({ to: normalizedEmail, subject: 'Confirm your email address', text, html });
     } catch (transportError) {
-      console.error('sendVerificationCode email delivery failed:', transportError.message);
-      throw new EmailDeliveryError('Email delivery failed', {
-        verificationUrl,
-        cause: transportError.message,
-      });
+      console.error('sendVerificationCode email delivery failed:', transportError?.message || transportError);
+      throw new EmailDeliveryError('Email delivery failed', { verificationUrl, cause: transportError?.message });
     }
 
     return { verificationUrl };
   } catch (err) {
-    // Log the error message and stack trace for deeper insights
-    console.error('sendVerificationCode failed:', err.message);
-    console.error(err.stack);
-    throw new Error('Could not send verification email');
+    console.error('sendVerificationCode failed:', err?.message || err);
+    throw err;
   }
 };
 
-
+// Verify a token that was created by sendVerificationCode
 export const verifyCodeService = async (email, token) => {
-  const normalizedEmail = email ? String(email).trim().toLowerCase() : '';
   if (!token) return null;
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not configured');
 
-  await ensureVerificationTable();
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const tokenEmail = payload?.email ? String(payload.email).trim().toLowerCase() : null;
+    const tokenUserId = payload?.userid || payload?.userId || null;
 
-  let userId = null;
+    // If an email was provided in the request, ensure it matches the token
+    if (email) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      if (!tokenEmail || tokenEmail !== normalizedEmail) return null;
+    }
 
-  if (normalizedEmail) {
-    // If email provided, validate it and find user id
-    const userResult = await pool.query(
-      `SELECT userid FROM users WHERE email=$1 LIMIT 1`,
-      [normalizedEmail]
-    );
-    if (!userResult.rows[0]) return null;
-    userId = userResult.rows[0].userid;
+    // Resolve user either by userid or by token email
+    let userResult;
+    if (tokenUserId) {
+      userResult = await pool.query(`SELECT * FROM users WHERE userid = $1 LIMIT 1`, [tokenUserId]);
+    } else if (tokenEmail) {
+      userResult = await pool.query(`SELECT * FROM users WHERE email = $1 LIMIT 1`, [tokenEmail]);
+    } else {
+      return null;
+    }
 
-    // Check for the corresponding verification code in the database for this user
-    const codeResult = await pool.query(
-      `SELECT * FROM email_verification_codes
-       WHERE user_id = $1 AND code = $2 AND is_used = FALSE AND expires_at > NOW() LIMIT 1`,
-      [userId, token]
-    );
+    const user = userResult.rows[0];
+    if (!user) return null;
 
-    const record = codeResult.rows[0];
-    if (!record) return null;
-
-    // Mark the code as used
-    await pool.query(`UPDATE email_verification_codes SET is_used = TRUE WHERE id = $1`, [record.id]);
-
-    // Mark the user as verified
-    const updatedUser = await pool.query(`UPDATE users SET is_verified = TRUE WHERE userid = $1 RETURNING *`, [userId]);
+    const updatedUser = await pool.query(`UPDATE users SET is_verified = TRUE WHERE userid = $1 RETURNING *`, [user.userid]);
     return updatedUser.rows[0];
+  } catch (err) {
+    // token verify failed or db error
+    console.warn('verifyCodeService failed to verify token:', err?.message || err);
+    return null;
   }
-
-  // If email not provided, try to find the code record directly by token
-  const directResult = await pool.query(
-    `SELECT * FROM email_verification_codes WHERE code = $1 AND is_used = FALSE AND expires_at > NOW() LIMIT 1`,
-    [token]
-  );
-
-  const directRecord = directResult.rows[0];
-  if (!directRecord) return null;
-
-  userId = directRecord.user_id;
-
-  // Mark the code as used
-  await pool.query(`UPDATE email_verification_codes SET is_used = TRUE WHERE id = $1`, [directRecord.id]);
-
-  // Mark the user as verified
-  const updatedUser = await pool.query(`UPDATE users SET is_verified = TRUE WHERE userid = $1 RETURNING *`, [userId]);
-  return updatedUser.rows[0];
 };

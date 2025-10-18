@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import axios from "axios"
 import { ClipboardList, CheckCircle2, XCircle, Clock, RotateCcw, FileStack, Search, Eye } from "lucide-react"
 
+// submission review styles and filters
 const STATUS_STYLES = {
   pending:
     "inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700",
@@ -20,8 +21,8 @@ const STATUS_FILTERS = [
 
 const RECORD_FILTERS = [
   { id: "all", label: "All records" },
-  { id: "barangay_yields", label: "Yield submissions" },
-  { id: "crop_prices", label: "Market prices" },
+  { id: "barangay_yields", label: "Yields" },
+  { id: "crop_prices", label: "Prices" },
 ]
 
 const RECORD_TYPE_LABELS = {
@@ -29,14 +30,13 @@ const RECORD_TYPE_LABELS = {
   crop_prices: "Crop Price",
 }
 
+// page size for submission lists
 const PAGE_SIZE = 15
 
 const formatDateTime = (value) => {
   if (!value) return "—"
-
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-
   return new Intl.DateTimeFormat("en-PH", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -45,9 +45,7 @@ const formatDateTime = (value) => {
 
 const resolveSubmitter = (submission) => {
   if (!submission) return "Unknown submitter"
-
   const metadata = submission.metadata ?? {}
-
   const candidateNames = [
     submission.submitted_by_name,
     submission.submitted_by_full_name,
@@ -58,17 +56,10 @@ const resolveSubmitter = (submission) => {
     metadata.recorded_by_name,
     metadata.recordedByName,
   ]
-
   const resolvedName = candidateNames.find((value) => typeof value === "string" && value.trim().length)
-  if (resolvedName) {
-    return resolvedName.trim()
-  }
-
+  if (resolvedName) return resolvedName.trim()
   const fallbackId = submission.submitted_by ?? metadata.submitted_by ?? metadata.recorded_by_user_id
-  if (fallbackId) {
-    return `User #${fallbackId}`
-  }
-
+  if (fallbackId) return `User #${fallbackId}`
   return "Unknown submitter"
 }
 
@@ -92,6 +83,7 @@ export default function SubmissionReviews() {
   const [viewLoading, setViewLoading] = useState(false)
   const [viewError, setViewError] = useState("")
   const [viewDeleted, setViewDeleted] = useState(false)
+  const lookupCacheRef = useState(() => ({ users: {}, barangays: null, crops: null }))[0]
   const [page, setPage] = useState(1)
 
   const fetchSubmissions = useCallback(async () => {
@@ -100,8 +92,8 @@ export default function SubmissionReviews() {
       const params = new URLSearchParams({ status: "all" })
       const response = await axios.get(`/api/approvals/pending?${params.toString()}`)
       const payload = Array.isArray(response?.data?.data) ? response.data.data : []
-  setAllSubmissions(payload)
-  setPage(1)
+      setAllSubmissions(payload)
+      setPage(1)
       setError(null)
     } catch (err) {
       const message = err.response?.data?.message || err.message || "Failed to load submissions."
@@ -124,13 +116,8 @@ export default function SubmissionReviews() {
       const submissionStatus = (submission.status || "").toLowerCase()
       const submissionRecordType = (submission.record_type || "").toLowerCase()
 
-      if (normalizedStatus !== "all" && submissionStatus !== normalizedStatus) {
-        return false
-      }
-
-      if (normalizedRecord !== "all" && submissionRecordType !== normalizedRecord) {
-        return false
-      }
+      if (normalizedStatus !== "all" && submissionStatus !== normalizedStatus) return false
+      if (normalizedRecord !== "all" && submissionRecordType !== normalizedRecord) return false
 
       if (trimmedSearch) {
         const haystack = [
@@ -138,13 +125,8 @@ export default function SubmissionReviews() {
           submission.submitted_by_name ?? "",
           submission.status ?? "",
           submissionRecordType,
-        ]
-          .join(" ")
-          .toLowerCase()
-
-        if (!haystack.includes(trimmedSearch)) {
-          return false
-        }
+        ].join(" ").toLowerCase()
+        if (!haystack.includes(trimmedSearch)) return false
       }
 
       return true
@@ -160,7 +142,6 @@ export default function SubmissionReviews() {
   const handleDecision = useCallback(
     async (submission, decision, options = {}) => {
       if (!submission?.record_type || !submission?.record_id) return
-
       const statusKey = (submission.status || "").toLowerCase()
       if (statusKey !== "pending") {
         return { success: false, message: "Only pending submissions can be updated." }
@@ -173,24 +154,15 @@ export default function SubmissionReviews() {
         setError(null)
         if (decision === "reject") {
           const reason = options?.reason?.trim()
-          if (!reason) {
-            throw new Error("Please provide a rejection reason before submitting.")
-          }
-
-          await axios.put(`/api/approvals/reject/${submission.record_type}/${submission.record_id}`, {
-            reason,
-          })
+          if (!reason) throw new Error("Please provide a rejection reason before submitting.")
+          await axios.put(`/api/approvals/reject/${submission.record_type}/${submission.record_id}`, { reason })
         } else {
           await axios.put(`/api/approvals/approve/${submission.record_type}/${submission.record_id}`)
         }
-
         await fetchSubmissions()
         return { success: true }
       } catch (err) {
-        const message =
-          err.response?.data?.message ||
-          err.message ||
-          `Failed to ${decision} submission ${submission.record_type}/${submission.record_id}`
+        const message = err.response?.data?.message || err.message || `Failed to ${decision} submission`
         setError(message)
         return { success: false, message }
       } finally {
@@ -204,7 +176,6 @@ export default function SubmissionReviews() {
     if (!submission) return
     const statusKey = (submission.status || "").toLowerCase()
     if (statusKey !== "pending") return
-
     setRejectTarget(submission)
     setRejectReason("")
     setRejectError("")
@@ -225,9 +196,7 @@ export default function SubmissionReviews() {
       setRejectError("Please provide a reason for rejecting this submission.")
       return
     }
-
     const result = await handleDecision(rejectTarget, "reject", { reason: rejectReason })
-
     if (result?.success) {
       setRejectModalOpen(false)
       setRejectTarget(null)
@@ -276,7 +245,6 @@ export default function SubmissionReviews() {
   }
 
   const showDecisionControls = statusFilter === "pending" || statusFilter === "all"
-  const tableColumnCount = showDecisionControls ? 7 : 6
   const totalSubmissions = filteredSubmissions.length
   const totalPages = Math.max(1, Math.ceil(totalSubmissions / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -299,7 +267,6 @@ export default function SubmissionReviews() {
 
   const loadSubmissionDetails = useCallback(async (submission) => {
     if (!submission?.record_type || !submission?.record_id) return null
-
     const type = submission.record_type.toLowerCase()
     const id = submission.record_id
 
@@ -308,30 +275,113 @@ export default function SubmissionReviews() {
         const response = await axios.get(`/api/barangay-yields/${id}`)
         return response.data?.data || null
       }
-
       if (type === "crop_prices" || type === "barangay_crop_prices") {
         const response = await axios.get(`/api/barangay-crop-prices/${id}`)
         return response.data?.data || null
       }
     } catch (error) {
-      const message =
-        error.response?.data?.message ||
-        error.response?.data?.error ||
-        error.message ||
-        "Unable to load submission details"
+      const message = error.response?.data?.message || error.response?.data?.error || error.message || "Unable to load submission details"
       const enhancedError = new Error(message)
       enhancedError.statusCode = error?.response?.status ?? error?.statusCode ?? null
       enhancedError.code = error?.response?.data?.code ?? error?.code
       throw enhancedError
     }
-
     return null
   }, [])
+
+  // helpers to fetch and cache lookup data
+  const fetchUserName = useCallback(async (userId) => {
+    if (!userId) return null
+    const id = Number(userId)
+    if (!Number.isFinite(id)) return null
+    if (lookupCacheRef.users[id]) return lookupCacheRef.users[id]
+    try {
+      const resp = await axios.get(`/api/user/${id}`)
+      const payload = resp?.data?.data ?? resp?.data ?? null
+      const name = payload ? (payload.firstname || payload.name || payload.full_name || payload.email) : null
+      lookupCacheRef.users[id] = name || `User #${id}`
+      return lookupCacheRef.users[id]
+    } catch {
+      lookupCacheRef.users[id] = `User #${id}`
+      return lookupCacheRef.users[id]
+    }
+  }, [lookupCacheRef])
+
+  const fetchBarangays = useCallback(async () => {
+    if (lookupCacheRef.barangays) return lookupCacheRef.barangays
+    try {
+      const resp = await axios.get('/api/barangays/dropdown')
+      const list = Array.isArray(resp?.data?.data) ? resp.data.data : []
+      lookupCacheRef.barangays = list
+      return list
+    } catch {
+      lookupCacheRef.barangays = []
+      return []
+    }
+  }, [lookupCacheRef])
+
+  const fetchCrops = useCallback(async () => {
+    if (lookupCacheRef.crops) return lookupCacheRef.crops
+    try {
+      const resp = await axios.get('/api/crops/dropdown')
+      const list = Array.isArray(resp?.data?.data) ? resp.data.data : []
+      lookupCacheRef.crops = list
+      return list
+    } catch {
+      lookupCacheRef.crops = []
+      return []
+    }
+  }, [lookupCacheRef])
+
+  const resolveAndPatchNames = useCallback(async (details = {}, submission = {}) => {
+    // combine metadata and details to search for ids
+    const metadata = submission.metadata ?? {}
+    const candidates = { ...metadata, ...details }
+    const updates = {}
+
+    // resolve barangay id
+    const barangayId = candidates.barangay_id ?? candidates.barangay
+    if (barangayId) {
+      const barangays = await fetchBarangays()
+      const found = barangays.find((b) => Number(b.id) === Number(barangayId) || String(b.id) === String(barangayId))
+      if (found) updates.barangay_name = found.name ?? found.label ?? found.text ?? found.barangay_name
+    }
+
+    // resolve crop id
+    const cropId = candidates.crop_id ?? candidates.crop
+    if (cropId) {
+      const crops = await fetchCrops()
+      const found = crops.find((c) => Number(c.id) === Number(cropId) || String(c.id) === String(cropId))
+      if (found) updates.crop_name = found.name ?? found.label ?? found.text ?? found.crop_name
+    }
+
+    // resolve recorded/submitted/approved/performed user ids
+    const userKeys = [
+      'performed_by', 'performed_by_user_id', 'recorded_by', 'recorded_by_user_id', 'submitted_by', 'submitted_by_user_id', 'approved_by', 'reviewed_by'
+    ]
+    for (const key of userKeys) {
+      const val = candidates[key]
+      if (!val) continue
+      // if val looks numeric or object with id
+      const id = typeof val === 'object' && val.id ? val.id : val
+      if (!id) continue
+      const name = await fetchUserName(id)
+      if (name) {
+        // write into updates with common name keys
+        if (/performed|approved|reviewed/.test(key)) updates.approved_by_name = name
+        if (/recorded|submitted/.test(key)) updates.recorded_by_name = name
+      }
+    }
+
+    if (Object.keys(updates).length) {
+      const merged = { ...(details || {}), ...updates }
+      setViewDetails(merged)
+    }
+  }, [fetchBarangays, fetchCrops, fetchUserName])
 
   const openViewModal = useCallback(
     async (submission) => {
       if (!submission) return
-
       setViewModalOpen(true)
       setViewTarget(submission)
       setViewDetails(null)
@@ -341,7 +391,13 @@ export default function SubmissionReviews() {
 
       try {
         const details = await loadSubmissionDetails(submission)
-        setViewDetails(details)
+          setViewDetails(details)
+          // attempt to resolve names for any numeric ids present and patch the details
+          try {
+            await resolveAndPatchNames(details, submission)
+          } catch {
+            // ignore lookup failures - we'll still show available metadata
+          }
       } catch (error) {
         const message = error?.message || "Unable to load submission details"
         const notFound = Boolean(error?.statusCode === 404 || /not\s+found/i.test(message))
@@ -351,7 +407,7 @@ export default function SubmissionReviews() {
         setViewLoading(false)
       }
     },
-    [loadSubmissionDetails]
+    [loadSubmissionDetails, resolveAndPatchNames]
   )
 
   const closeViewModal = () => {
@@ -365,77 +421,104 @@ export default function SubmissionReviews() {
 
   const buildDetailRows = useCallback(() => {
     if (!viewTarget) return []
-
     const metadata = viewTarget.metadata ?? {}
     const details = viewDetails ?? {}
     const type = (viewTarget.record_type || "").toLowerCase()
 
     const formatValue = (value) => {
-      if (value === undefined || value === null || value === "") {
-        return "—"
+      if (value === undefined || value === null || value === "") return "—"
+
+      // handle objects (relations or nested payloads)
+      if (typeof value === "object") {
+        if (Array.isArray(value)) return value.map(formatValue).join(", ")
+        // prefer common name-like fields
+        const nameFields = [
+          "name",
+          "full_name",
+          "fullname",
+          "submitted_by_full_name",
+          "submitted_by_name",
+          "recorded_by_name",
+          "label",
+          "title",
+          "barangay_name",
+          "crop_name",
+        ]
+        for (const f of nameFields) {
+          if (value[f]) return String(value[f])
+        }
+        if (value.id !== undefined && value.id !== null) return `#${value.id}`
+        try {
+          return JSON.stringify(value)
+        } catch {
+          return String(value)
+        }
       }
-      if (typeof value === "number" && Number.isFinite(value)) {
-        return value.toLocaleString()
-      }
+
+      if (typeof value === "number" && Number.isFinite(value)) return value.toLocaleString()
       return value
     }
 
     const pick = (...keys) => {
       for (const key of keys) {
         const detailValue = details[key]
-        if (detailValue !== undefined && detailValue !== null && detailValue !== "") {
-          return formatValue(detailValue)
-        }
+        if (detailValue !== undefined && detailValue !== null && detailValue !== "") return formatValue(detailValue)
         const metaValue = metadata[key]
-        if (metaValue !== undefined && metaValue !== null && metaValue !== "") {
-          return formatValue(metaValue)
-        }
+        if (metaValue !== undefined && metaValue !== null && metaValue !== "") return formatValue(metaValue)
       }
       return "—"
     }
 
     if (type === "barangay_yields" || type === "barangay_yield") {
+      const resolveRecordedBy = () => {
+        // prefer explicit submitter name from the top-level submission
+        const submitterName = resolveSubmitter(viewTarget)
+        if (submitterName && !/^User\s+#/i.test(submitterName) && submitterName !== "Unknown submitter") return submitterName
+        // fall back to detail or metadata fields
+        return pick(
+          "submitted_by_name",
+          "submitted_by_full_name",
+          "recorded_by_name",
+          "recorded_by_user_name",
+          "submitted_by",
+          "recorded_by_user_id",
+        )
+      }
+
       return [
-        { label: "Barangay", value: pick("barangay", "barangay_name", "barangay_id") },
-        { label: "Crop", value: pick("crop", "crop_name", "crop_id") },
+        // prefer explicit name fields first, then object or id
+        { label: "Barangay", value: pick("barangay_name", "barangay", "barangay_id") },
+        { label: "Crop", value: pick("crop_name", "crop", "crop_id") },
         { label: "Year", value: pick("year", "yield_year") },
         { label: "Season", value: pick("season", "yield_season") },
-        {
-          label: "Total yield (kg)",
-          value: pick("total_yield", "yield_total_yield"),
-        },
-        {
-          label: "Area planted (ha)",
-          value: pick("total_area_planted_ha", "area"),
-        },
-        {
-          label: "Yield per hectare (kg/ha)",
-          value: pick("yield_per_hectare"),
-        },
+        { label: "Total yield (kg)", value: pick("total_yield", "yield_total_yield") },
+        { label: "Area planted (ha)", value: pick("total_area_planted_ha", "area") },
+        { label: "Yield per hectare (kg/ha)", value: pick("yield_per_hectare") },
+        { label: "Recorded by", value: resolveRecordedBy() },
       ]
     }
 
     if (type === "crop_prices" || type === "barangay_crop_prices") {
+      const resolveRecordedBy = () => {
+        const submitterName = resolveSubmitter(viewTarget)
+        if (submitterName && !/^User\s+#/i.test(submitterName) && submitterName !== "Unknown submitter") return submitterName
+        return pick(
+          "submitted_by_name",
+          "submitted_by_full_name",
+          "recorded_by_name",
+          "recorded_by_user_name",
+          "submitted_by",
+          "recorded_by_user_id",
+        )
+      }
+
       return [
-        { label: "Barangay", value: pick("barangay", "barangay_id") },
-        { label: "Crop", value: pick("crop", "crop_id") },
+        { label: "Barangay", value: pick("barangay_name", "barangay", "barangay_id") },
+        { label: "Crop", value: pick("crop_name", "crop", "crop_id") },
         { label: "Year", value: pick("year") },
         { label: "Season", value: pick("season") },
-        {
-          label: "Price per kilogram",
-          value: pick("price_per_kg"),
-        },
-        {
-          label: "Recorded by",
-          value: pick(
-            "submitted_by_name",
-            "submitted_by_full_name",
-            "recorded_by_name",
-            "recorded_by_user_name",
-            "submitted_by",
-            "recorded_by_user_id"
-          ),
-        },
+        { label: "Price per kilogram", value: pick("price_per_kg") },
+        { label: "Recorded by", value: resolveRecordedBy() },
       ]
     }
 
@@ -448,116 +531,98 @@ export default function SubmissionReviews() {
   const detailRows = buildDetailRows()
 
   return (
-    <section className="space-y-6 px-4 py-6 text-slate-800 sm:px-6 lg:px-8">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-              <ClipboardList size={24} />
+    <section className="space-y-4 sm:space-y-6 px-3 sm:px-6 lg:px-8 py-4 sm:py-6 text-slate-800">
+      <header className="flex flex-col gap-3 sm:gap-4">
+        <div className="flex flex-col gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-xl sm:rounded-2xl bg-emerald-50 text-emerald-600 flex-shrink-0">
+              <ClipboardList size={20} className="sm:w-6 sm:h-6" />
             </div>
-            <div>
-              <h1 className="text-2xl font-semibold uppercase tracking-[0.08em] text-emerald-800">Submission Reviews</h1>
-              <p className="text-sm text-slate-500">
-                Review approvals across pending market prices and barangay yield submissions.
-              </p>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl font-semibold uppercase tracking-wider text-emerald-800 truncate">Submission Reviews</h1>
+              <p className="text-xs sm:text-sm text-slate-500">Review pending submissions</p>
             </div>
           </div>
 
-          <form
-            onSubmit={handleSearchSubmit}
-            className="flex w-full max-w-xl items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-sm"
-          >
-            <Search className="h-4 w-4 text-slate-400" />
+          <form onSubmit={handleSearchSubmit} className="flex w-full items-center gap-2 sm:gap-3 rounded-xl sm:rounded-2xl border border-slate-200 bg-white px-3 sm:px-4 py-2 shadow-sm">
+            <Search className="h-4 w-4 text-slate-400 flex-shrink-0" />
             <input
               type="search"
-              placeholder="Search by ID, name, or status"
+              placeholder="Search..."
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              className="flex-1 bg-transparent text-sm text-slate-600 placeholder:text-slate-400 focus:outline-none"
+              className="flex-1 bg-transparent text-xs sm:text-sm text-slate-600 placeholder:text-slate-400 focus:outline-none min-w-0"
             />
             {searchTerm && (
-              <button
-                type="button"
-                onClick={resetSearch}
-                className="text-xs text-emerald-600 transition-colors hover:text-emerald-500"
-              >
+              <button type="button" onClick={resetSearch} className="text-xs text-emerald-600 transition-colors hover:text-emerald-500 flex-shrink-0">
                 Clear
               </button>
             )}
-            <button
-              type="submit"
-              className="btn btn-sm border-emerald-500 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
-              disabled={loading}
-            >
+            <button type="submit" className="text-xs sm:text-sm px-2 sm:px-3 py-1 rounded-lg border-emerald-500 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 flex-shrink-0" disabled={loading}>
               Apply
             </button>
           </form>
         </div>
 
-        {error ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-rose-600">
             {error}
           </div>
-        ) : null}
+        )}
       </header>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <article className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div>
-            <p className="text-sm text-slate-500">Pending Reviews</p>
-            <p className="text-2xl font-semibold text-slate-900 sm:text-[26px]">{pendingCount}</p>
+      <section className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
+        <article className="flex items-center justify-between rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-5 shadow-sm">
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-slate-500 truncate">Pending</p>
+            <p className="text-xl sm:text-2xl font-semibold text-slate-900">{pendingCount}</p>
           </div>
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600">
-            <Clock size={24} />
-          </div>
-        </article>
-        <article className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div>
-            <p className="text-sm text-slate-500">Approved Records</p>
-            <p className="text-2xl font-semibold text-slate-900 sm:text-[26px]">{approvedCount}</p>
-          </div>
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600">
-            <CheckCircle2 size={24} />
+          <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-lg sm:rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 flex-shrink-0">
+            <Clock size={18} className="sm:w-6 sm:h-6" />
           </div>
         </article>
-        <article className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div>
-            <p className="text-sm text-slate-500">Rejected Decisions</p>
-            <p className="text-2xl font-semibold text-slate-900 sm:text-[26px]">{rejectedCount}</p>
+        <article className="flex items-center justify-between rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-5 shadow-sm">
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-slate-500 truncate">Approved</p>
+            <p className="text-xl sm:text-2xl font-semibold text-slate-900">{approvedCount}</p>
           </div>
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600">
-            <XCircle size={24} />
+          <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-lg sm:rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 flex-shrink-0">
+            <CheckCircle2 size={18} className="sm:w-6 sm:h-6" />
           </div>
         </article>
-        <article className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div>
-            <p className="text-sm text-slate-500">Pending Market Prices</p>
-            <p className="text-2xl font-semibold text-slate-900 sm:text-[26px]">{pendingMarketCount}</p>
+        <article className="flex items-center justify-between rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-5 shadow-sm">
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-slate-500 truncate">Rejected</p>
+            <p className="text-xl sm:text-2xl font-semibold text-slate-900">{rejectedCount}</p>
           </div>
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600">
-            <FileStack size={24} />
+          <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-lg sm:rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 flex-shrink-0">
+            <XCircle size={18} className="sm:w-6 sm:h-6" />
+          </div>
+        </article>
+        <article className="flex items-center justify-between rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-5 shadow-sm">
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-slate-500 truncate">Market</p>
+            <p className="text-xl sm:text-2xl font-semibold text-slate-900">{pendingMarketCount}</p>
+          </div>
+          <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-lg sm:rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 flex-shrink-0">
+            <FileStack size={18} className="sm:w-6 sm:h-6" />
           </div>
         </article>
       </section>
 
-      <article className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-slate-200 p-6">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-900">Approval Activity</h2>
-              <p className="text-sm text-slate-500">Switch between statuses and record types to review decisions.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
+      <article className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 sm:gap-4 border-b border-slate-200 p-3 sm:p-6">
+          <div className="flex flex-col gap-2">
+            <h2 className="text-base sm:text-xl font-semibold text-slate-900">Approval Activity</h2>
+            <div className="flex flex-wrap gap-1.5 sm:gap-2">
               {STATUS_FILTERS.map((filter) => {
                 const isActive = statusFilter === filter.id
                 return (
                   <button
                     key={filter.id}
                     type="button"
-                    className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
-                      isActive
-                        ? "border-emerald-500 bg-emerald-500 text-white shadow-sm"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-600"
+                    className={`rounded-full border px-2.5 sm:px-4 py-1 sm:py-1.5 text-xs sm:text-sm font-medium transition-colors ${
+                      isActive ? "border-emerald-500 bg-emerald-500 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-600"
                     }`}
                     onClick={() => setStatusFilter(filter.id)}
                     disabled={loading && !isActive}
@@ -569,17 +634,15 @@ export default function SubmissionReviews() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {RECORD_FILTERS.map((filter) => {
               const isActive = recordFilter === filter.id
               return (
                 <button
                   key={filter.id}
                   type="button"
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    isActive
-                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-500 hover:border-emerald-200 hover:text-emerald-600"
+                  className={`rounded-full border px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-medium transition-colors ${
+                    isActive ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500 hover:border-emerald-200 hover:text-emerald-600"
                   }`}
                   onClick={() => setRecordFilter(filter.id)}
                   disabled={loading && !isActive}
@@ -592,48 +655,46 @@ export default function SubmissionReviews() {
             <button
               type="button"
               onClick={fetchSubmissions}
-              className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50"
+              className="flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50"
               disabled={loading}
             >
-              <RotateCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              Refresh list
+              <RotateCcw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">Refresh</span>
             </button>
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-b-2xl">
-          <table className="min-w-full table-fixed text-sm text-slate-700">
-            <thead className="bg-slate-50 text-[0.62rem] uppercase tracking-[0.25em] text-slate-500">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs sm:text-sm text-slate-700">
+            <thead className="bg-slate-50 text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-500">
               <tr className="text-left">
-                <th className="px-4 py-2.5 font-semibold">Submission</th>
-                <th className="px-4 py-2.5 font-semibold">Type</th>
-                <th className="px-4 py-2.5 font-semibold">Submitted By</th>
-                <th className="px-4 py-2.5 font-semibold">Submitted At</th>
-                <th className="px-4 py-2.5 font-semibold">Status</th>
-                <th className="w-[110px] px-3 py-2.5 text-center font-semibold">Review</th>
-                {showDecisionControls ? <th className="w-[150px] px-3 py-2.5 text-center font-semibold">Actions</th> : null}
+                <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold whitespace-nowrap">ID</th>
+                <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold whitespace-nowrap">Type</th>
+                <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold whitespace-nowrap hidden md:table-cell">Submitter</th>
+                <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold whitespace-nowrap hidden lg:table-cell">Date</th>
+                <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold whitespace-nowrap">Status</th>
+                <th className="px-2 sm:px-3 py-2 sm:py-2.5 text-center font-semibold whitespace-nowrap">View</th>
+                {showDecisionControls && <th className="px-2 sm:px-3 py-2 sm:py-2.5 text-center font-semibold whitespace-nowrap">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={tableColumnCount} className="py-10 text-center text-slate-400">
-                    <span className="loading loading-spinner loading-md text-emerald-500" aria-hidden="true" />
-                    <span className="ml-2 align-middle">Fetching submissions…</span>
+                  <td colSpan="7" className="py-8 sm:py-10 text-center text-slate-400">
+                    <span className="inline-block h-5 w-5 sm:h-6 sm:w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                    <span className="ml-2 text-xs sm:text-sm">Loading...</span>
                   </td>
                 </tr>
               ) : showEmptyState ? (
                 <tr>
-                  <td colSpan={tableColumnCount} className="py-8 text-center text-slate-400">
-                    No submissions match the selected filters yet.
+                  <td colSpan="7" className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-400">
+                    No submissions found
                   </td>
                 </tr>
               ) : (
                 visibleSubmissions.map((submission) => {
                   const statusKey = (submission.status || "").toLowerCase()
-                  const badgeClass =
-                    STATUS_STYLES[statusKey] ??
-                    "inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600"
+                  const badgeClass = STATUS_STYLES[statusKey] ?? "inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600"
                   const recordLabel = RECORD_TYPE_LABELS[submission.record_type] || submission.record_type
                   const submitterLabel = resolveSubmitter(submission)
                   const submissionKey = `${submission.record_type}-${submission.record_id}`
@@ -643,74 +704,65 @@ export default function SubmissionReviews() {
 
                   return (
                     <tr key={submissionKey} className="bg-white/70 transition hover:bg-emerald-50/60">
-                      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-sm font-medium text-slate-900">{submission.record_id}</td>
-                      <td className="px-4 py-2.5 text-sm text-slate-600">
-                        <span className="block max-w-[12rem] truncate" title={recordLabel}>
-                          {recordLabel}
-                        </span>
+                      <td className="px-2 sm:px-4 py-2 sm:py-2.5 font-mono text-xs sm:text-sm font-medium text-slate-900 whitespace-nowrap">{submission.record_id}</td>
+                      <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-slate-600">
+                        <span className="block max-w-[80px] sm:max-w-[120px] truncate" title={recordLabel}>{recordLabel}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-sm text-slate-600">
-                        <span className="block max-w-[14rem] truncate" title={submitterLabel}>
-                          {submitterLabel}
-                        </span>
+                      <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-slate-600 hidden md:table-cell">
+                        <span className="block max-w-[120px] sm:max-w-[160px] truncate" title={submitterLabel}>{submitterLabel}</span>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-sm text-slate-600">{formatDateTime(submission.submitted_at)}</td>
-                      <td className="px-4 py-2.5">
+                      <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-slate-600 hidden lg:table-cell whitespace-nowrap">{formatDateTime(submission.submitted_at)}</td>
+                      <td className="px-2 sm:px-4 py-2 sm:py-2.5">
                         <span className={badgeClass}>
                           <span className="h-1.5 w-1.5 rounded-full bg-current/70"></span>
-                          {submission.status ?? "Unknown"}
+                          <span className="hidden sm:inline">{submission.status ?? "Unknown"}</span>
                         </span>
                       </td>
-                      <td className="w-[110px] px-3 py-2.5 text-center">
+                      <td className="px-2 sm:px-3 py-2 sm:py-2.5 text-center">
                         <button
                           type="button"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-600 transition hover:border-emerald-300 hover:bg-emerald-50"
+                          className="inline-flex h-7 w-7 sm:h-9 sm:w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-600 transition hover:border-emerald-300 hover:bg-emerald-50"
                           onClick={() => openViewModal(submission)}
                         >
-                          <Eye size={16} />
-                          <span className="sr-only">View details</span>
+                          <Eye size={14} className="sm:w-4 sm:h-4" />
                         </button>
                       </td>
-                      {showDecisionControls ? (
-                        <td className="w-[150px] px-3 py-2.5">
-                          <div className="flex items-center justify-center gap-2">
+                      {showDecisionControls && (
+                        <td className="px-2 sm:px-3 py-2 sm:py-2.5">
+                          <div className="flex items-center justify-center gap-1sm:gap-2">
                             <button
                               type="button"
-                              className={`inline-flex h-9 items-center gap-1 rounded-full border border-emerald-300 px-3 text-xs font-semibold transition-colors ${
-                                disableApprove
-                                  ? "cursor-not-allowed bg-emerald-100 text-emerald-400"
-                                  : "bg-emerald-500 text-white hover:bg-emerald-600"
+                              className={`inline-flex h-7 sm:h-9 items-center gap-1 rounded-full border border-emerald-300 px-2 sm:px-3 text-[10px] sm:text-xs font-semibold transition-colors ${
+                                disableApprove ? "cursor-not-allowed bg-emerald-100 text-emerald-400" : "bg-emerald-500 text-white hover:bg-emerald-600"
                               }`}
                               onClick={() => handleDecision(submission, "approve")}
                               disabled={disableApprove}
                             >
                               {isActioning && isPending ? (
-                                <span className="loading loading-spinner loading-xs" aria-hidden="true" />
+                                <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
                               ) : (
-                                <CheckCircle2 size={16} />
+                                <CheckCircle2 size={12} className="sm:w-4 sm:h-4" />
                               )}
-                              Approve
+                              <span className="hidden sm:inline">Approve</span>
                             </button>
                             <button
                               type="button"
-                              className={`inline-flex h-9 items-center gap-1 rounded-full border border-rose-200 px-3 text-xs font-semibold transition-colors ${
-                                isPending
-                                  ? "bg-rose-50 text-rose-600 hover:bg-rose-100"
-                                  : "cursor-not-allowed bg-rose-100 text-rose-300"
+                              className={`inline-flex h-7 sm:h-9 items-center gap-1 rounded-full border border-rose-200 px-2 sm:px-3 text-[10px] sm:text-xs font-semibold transition-colors ${
+                                isPending ? "bg-rose-50 text-rose-600 hover:bg-rose-100" : "cursor-not-allowed bg-rose-100 text-rose-300"
                               }`}
                               onClick={() => openRejectModal(submission)}
                               disabled={!isPending}
                             >
                               {isActioning && isPending ? (
-                                <span className="loading loading-spinner loading-xs" aria-hidden="true" />
+                                <span className="inline-block h-3 w-3 animate-spin rounded-full border border-rose-600 border-t-transparent" />
                               ) : (
-                                <XCircle size={16} />
+                                <XCircle size={12} className="sm:w-4 sm:h-4" />
                               )}
-                              Reject
+                              <span className="hidden sm:inline">Reject</span>
                             </button>
                           </div>
                         </td>
-                      ) : null}
+                      )}
                     </tr>
                   )
                 })
@@ -720,44 +772,45 @@ export default function SubmissionReviews() {
         </div>
       </article>
 
-      {totalSubmissions > 0 ? (
-        <div className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm sm:flex-row">
-          <span>
-            Showing {firstVisible === 0 ? 0 : `${firstVisible}-${lastVisible}`} of {totalSubmissions} submissions
+      {totalSubmissions > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3 rounded-xl sm:rounded-2xl border border-slate-200 bg-white px-3 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-xs text-slate-500 shadow-sm">
+          <span className="text-center sm:text-left">
+            Showing {firstVisible === 0 ? 0 : `${firstVisible}-${lastVisible}`} of {totalSubmissions}
           </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => canGoPrevious && setPage((prev) => Math.max(1, prev - 1))}
               disabled={!canGoPrevious}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-1.5 font-semibold transition hover:border-emerald-200 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1 sm:gap-2 rounded-full border border-slate-200 px-2 sm:px-4 py-1 sm:py-1.5 text-[10px] sm:text-xs font-semibold transition hover:border-emerald-200 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Previous
+              Prev
             </button>
-            <span className="text-slate-400">Page {currentPage} of {totalPages}</span>
+            <span className="text-slate-400 text-[10px] sm:text-xs">{currentPage}/{totalPages}</span>
             <button
               type="button"
               onClick={() => canGoNext && setPage((prev) => Math.min(totalPages, prev + 1))}
               disabled={!canGoNext}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-1.5 font-semibold transition hover:border-emerald-200 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1 sm:gap-2 rounded-full border border-slate-200 px-2 sm:px-4 py-1 sm:py-1.5 text-[10px] sm:text-xs font-semibold transition hover:border-emerald-200 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Next
             </button>
           </div>
         </div>
-      ) : null}
+      )}
 
-      {viewModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-3 py-6 backdrop-blur-sm">
-          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3">
+  {/* view modal */}
+      {viewModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-3 py-4 sm:px-4 sm:py-6 backdrop-blur-sm">
+          <div className="w-full max-w-xl overflow-hidden rounded-xl sm:rounded-2xl border border-slate-200 bg-white shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 sm:px-5 py-2.5 sm:py-3 flex-shrink-0">
               <div className="min-w-0">
-                <h3 className="text-base font-semibold text-slate-900">Submission details</h3>
-                <p className="text-xs text-slate-500">Review the record shared by the field team.</p>
+                <h3 className="text-sm sm:text-base font-semibold text-slate-900">Details</h3>
+                <p className="text-[10px] sm:text-xs text-slate-500">Review submission</p>
               </div>
               <button
                 type="button"
-                className="rounded-lg px-3 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+                className="rounded-lg px-2 sm:px-3 py-1 text-[10px] sm:text-xs text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 flex-shrink-0"
                 onClick={closeViewModal}
                 disabled={viewLoading}
               >
@@ -765,70 +818,77 @@ export default function SubmissionReviews() {
               </button>
             </div>
 
-            <div className="max-h-[70vh] overflow-y-auto px-5 py-4 text-sm text-slate-700">
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="overflow-y-auto px-4 sm:px-5 py-3 sm:py-4 text-xs sm:text-sm text-slate-700 flex-1">
+              <div className="grid gap-2 sm:gap-3 grid-cols-2">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.26em] text-slate-400">Submission</p>
-                  <p className="font-mono text-sm text-slate-900">{viewTarget?.record_id ?? "—"}</p>
+                  <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400">ID</p>
+                  <p className="font-mono text-xs sm:text-sm text-slate-900 truncate">{viewTarget?.record_id ?? "—"}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.26em] text-slate-400">Type</p>
-                  <p className="text-sm font-medium text-slate-900">{RECORD_TYPE_LABELS[viewTarget?.record_type] || viewTarget?.record_type || "—"}</p>
+                  <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400">Type</p>
+                  <p className="text-xs sm:text-sm font-medium text-slate-900 truncate">{RECORD_TYPE_LABELS[viewTarget?.record_type] || viewTarget?.record_type || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.26em] text-slate-400">Status</p>
-                  <p className="text-sm font-medium capitalize text-slate-900">{viewTarget?.status || "—"}</p>
+                  <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400">Status</p>
+                  <p className="text-xs sm:text-sm font-medium capitalize text-slate-900">{viewTarget?.status || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.26em] text-slate-400">Submitted by</p>
-                  <p className="text-sm font-medium text-slate-900">{viewTarget ? resolveSubmitter(viewTarget) : "—"}</p>
+                  <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400">By</p>
+                  <p className="text-xs sm:text-sm font-medium text-slate-900 truncate">
+                    {viewTarget ? (
+                      // show approver if actioned, otherwise submitter or a friendly message
+                      (resolveApprover(viewTarget) || (viewTarget.status && viewTarget.status.toLowerCase() !== "pending")
+                        ? resolveApprover(viewTarget) || "—"
+                        : "no action has been taken yet")
+                    ) : (
+                      "—"
+                    )}
+                  </p>
                 </div>
-                <div className="sm:col-span-2">
-                  <p className="text-[11px] uppercase tracking-[0.26em] text-slate-400">Submitted at</p>
-                  <p className="text-sm font-medium text-slate-900">{formatDateTime(viewTarget?.submitted_at)}</p>
+                <div className="col-span-2">
+                  <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400">Date</p>
+                  <p className="text-xs sm:text-sm font-medium text-slate-900">{formatDateTime(viewTarget?.submitted_at)}</p>
                 </div>
               </div>
 
-              {viewDeleted ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700">
-                  <p className="font-medium">This record has already been removed from the source tables.</p>
-                  <p className="mt-1 text-amber-600/80">
-                    {viewError || "Only the metadata captured at submission time is available."}
-                  </p>
+              {viewDeleted && (
+                <div className="rounded-lg sm:rounded-xl border border-amber-200 bg-amber-50 px-3 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-xs text-amber-700 mt-3">
+                  <p className="font-medium">Record removed</p>
+                  <p className="mt-1 text-amber-600/80">{viewError || "Only metadata available."}</p>
                 </div>
-              ) : null}
+              )}
 
-              {!viewDeleted && viewError ? (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-600">
+              {!viewDeleted && viewError && (
+                <div className="rounded-lg sm:rounded-xl border border-rose-200 bg-rose-50 px-3 sm:px-4 py-2 text-[10px] sm:text-xs text-rose-600 mt-3">
                   {viewError}
                 </div>
-              ) : null}
+              )}
 
               {viewLoading ? (
-                <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-600">
-                  <span className="loading loading-spinner loading-sm" aria-hidden="true" />
-                  Fetching submission details…
+                <div className="flex items-center gap-2 sm:gap-3 rounded-lg sm:rounded-xl border border-emerald-200 bg-emerald-50 px-3 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-xs text-emerald-600 mt-3">
+                  <span className="inline-block h-3 w-3 sm:h-4 sm:w-4 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+                  Loading...
                 </div>
               ) : detailRows.length > 0 ? (
-                <dl className="grid gap-3 sm:grid-cols-2">
+                <dl className="grid gap-2 sm:gap-3 grid-cols-2 mt-3">
                   {detailRows.map((row) => (
-                    <div key={`${row.label}-${row.value}`} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                      <dt className="text-[11px] uppercase tracking-[0.26em] text-slate-400">{row.label}</dt>
-                      <dd className="mt-1 break-words text-sm font-medium text-slate-900">{row.value}</dd>
+                    <div key={`${row.label}-${row.value}`} className="rounded-lg sm:rounded-xl border border-slate-200 bg-white px-3 sm:px-4 py-2 sm:py-3">
+                      <dt className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400 truncate">{row.label}</dt>
+                      <dd className="mt-1 break-words text-xs sm:text-sm font-medium text-slate-900">{row.value}</dd>
                     </div>
                   ))}
                 </dl>
               ) : (
-                <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                  No additional details were provided for this submission.
+                <p className="rounded-lg sm:rounded-xl border border-slate-200 bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-xs text-slate-500 mt-3">
+                  No details available
                 </p>
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-5 py-3">
+            <div className="flex items-center justify-end gap-2 sm:gap-3 border-t border-slate-200 bg-slate-50 px-4 sm:px-5 py-2 sm:py-3 flex-shrink-0">
               <button
                 type="button"
-                className="rounded-xl border border-slate-200 px-4 py-2 text-xs text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                className="rounded-lg sm:rounded-xl border border-slate-200 px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800"
                 onClick={closeViewModal}
                 disabled={viewLoading}
               >
@@ -837,47 +897,42 @@ export default function SubmissionReviews() {
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
-      {rejectModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm px-4">
-          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
+  {/* reject modal */}
+      {rejectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm px-3 sm:px-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-xl sm:rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 sm:px-6 py-3 sm:py-4">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">Reject submission</h3>
-                <p className="text-sm text-slate-500">
-                  Provide a short reason so the technician can address the issue.
-                </p>
+                <h3 className="text-base sm:text-lg font-semibold text-slate-900">Reject</h3>
+                <p className="text-xs sm:text-sm text-slate-500">Provide a reason</p>
               </div>
               <button
                 type="button"
-                className="rounded-lg px-3 py-1 text-sm text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+                className="rounded-lg px-2 sm:px-3 py-1 text-xs sm:text-sm text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
                 onClick={closeRejectModal}
               >
                 Close
               </button>
             </div>
-            <div className="space-y-4 px-6 py-5">
-              <div className="grid gap-3 text-sm text-slate-600">
+            <div className="space-y-3 sm:space-y-4 px-4 sm:px-6 py-4 sm:py-5">
+              <div className="grid gap-2 sm:gap-3 text-xs sm:text-sm text-slate-600">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Submission</span>
+                  <span className="text-slate-500">ID</span>
                   <span className="font-mono text-slate-900">{rejectTarget?.record_id}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">Type</span>
-                  <span className="text-slate-900">{RECORD_TYPE_LABELS[rejectTarget?.record_type] || rejectTarget?.record_type}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Submitted by</span>
-                  <span className="text-slate-900">{rejectTarget ? resolveSubmitter(rejectTarget) : "—"}</span>
+                  <span className="text-slate-900 truncate ml-2">{RECORD_TYPE_LABELS[rejectTarget?.record_type] || rejectTarget?.record_type}</span>
                 </div>
               </div>
 
-              <label className="flex flex-col gap-2 text-sm text-slate-700">
-                <span>Rejection reason</span>
+              <label className="flex flex-col gap-1.5 sm:gap-2 text-xs sm:text-sm text-slate-700">
+                <span>Reason</span>
                 <textarea
-                  className="h-28 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  placeholder="Let the technician know what needs to be fixed"
+                  className="h-20 sm:h-28 w-full rounded-lg sm:rounded-xl border border-slate-200 bg-white px-3 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  placeholder="Explain what needs to be fixed"
                   value={rejectReason}
                   onChange={(event) => {
                     setRejectReason(event.target.value)
@@ -885,19 +940,19 @@ export default function SubmissionReviews() {
                   }}
                   maxLength={400}
                 />
-                <span className="text-xs text-slate-400">{rejectReason.length}/400 characters</span>
+                <span className="text-[10px] sm:text-xs text-slate-400">{rejectReason.length}/400</span>
               </label>
 
-              {rejectError ? (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-600">
+              {rejectError && (
+                <div className="rounded-lg sm:rounded-xl border border-rose-200 bg-rose-50 px-3 sm:px-4 py-2 text-[10px] sm:text-xs text-rose-600">
                   {rejectError}
                 </div>
-              ) : null}
+              )}
             </div>
-            <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+            <div className="flex items-center justify-end gap-2 sm:gap-3 border-t border-slate-200 bg-slate-50 px-4 sm:px-6 py-3 sm:py-4">
               <button
                 type="button"
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                className="rounded-lg sm:rounded-xl border border-slate-200 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800"
                 onClick={closeRejectModal}
                 disabled={Boolean(actioningId)}
               >
@@ -905,17 +960,54 @@ export default function SubmissionReviews() {
               </button>
               <button
                 type="button"
-                className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-rose-200"
+                className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl bg-rose-600 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-white transition-colors hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-rose-200"
                 onClick={confirmReject}
                 disabled={Boolean(actioningId)}
               >
-                {actioningId ? <span className="loading loading-spinner loading-xs" aria-hidden="true" /> : null}
-                Reject submission
+                {actioningId && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+                Reject
               </button>
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </section>
   )
+}
+
+const resolveApprover = (submission) => {
+  if (!submission) return null
+  const metadata = submission.metadata ?? {}
+  const candidateNames = [
+    submission.approved_by_name,
+    submission.approved_by_full_name,
+    metadata.approved_by_name,
+    metadata.approved_by_full_name,
+    submission.reviewed_by_name,
+    submission.reviewed_by_full_name,
+    metadata.reviewed_by_name,
+    metadata.reviewed_by_full_name,
+    // new performed_by fields used in db
+    submission.performed_by,
+    submission.performed_by_name,
+    submission.performed_by_full_name,
+    metadata.performed_by,
+    metadata.performed_by_name,
+    metadata.performed_by_full_name,
+    submission.actioned_by_name,
+    metadata.actioned_by_name,
+    submission.approved_by,
+    submission.reviewed_by,
+    metadata.approved_by,
+    metadata.reviewed_by,
+  ]
+
+  const resolved = candidateNames.find((v) => typeof v === "string" && v.trim().length)
+  if (resolved) return resolved.trim()
+
+  // fallback to numeric ids if present
+  const fallbackId = submission.performed_by ?? metadata.performed_by ?? submission.approved_by ?? metadata.approved_by ?? submission.reviewed_by ?? metadata.reviewed_by
+  if (fallbackId) return `User #${fallbackId}`
+
+  return null
 }

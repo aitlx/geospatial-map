@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GeoJSON, MapContainer, TileLayer } from "react-leaflet"
-import { Link } from "react-router-dom"
+import { Link, useLocation } from "react-router-dom"
 import { ArrowLeft, ArrowRight, BarChart3, MapPin, ShieldCheck, Sparkles } from "lucide-react"
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts"
 import L from "leaflet"
@@ -164,14 +164,20 @@ export default function GeospatialMap() {
   const mapSectionRef = useRef(null)
   const skipSessionRefreshRef = useRef(false)
 
-  const API_BASE_URL = useMemo(
-    () => import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:5000/api",
-    []
-  )
+  const API_BASE_URL = useMemo(() => {
+    const raw = import.meta.env.VITE_API_URL?.trim()
+    if (!raw) return "http://localhost:5000/api"
+    const normalized = raw.replace(/\/$/, "")
+    return normalized.endsWith("/api") ? normalized : `${normalized}/api`
+  }, [])
 
   const isAuthenticated = Number.isFinite(sessionRoleId)
   const isInternalRole = isAuthenticated && INTERNAL_ROLE_IDS.has(sessionRoleId)
-  const showLandingExperience = !isInternalRole
+  const location = useLocation()
+  const cameFromHeader = location?.state?.fromHeader === true
+  const isMapPath = (location?.pathname || "").toLowerCase().includes("/geospatial-map")
+  // Hide the landing experience for internal roles OR whenever we're on the geospatial map route
+  const showLandingExperience = !isInternalRole && !cameFromHeader && !isMapPath
 
   const syncRoleFromStorage = useCallback(() => {
     if (typeof window === "undefined") return false

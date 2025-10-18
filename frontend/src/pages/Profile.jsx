@@ -16,7 +16,12 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
   const [logsLoading, setLogsLoading] = useState(true)
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
 
-  const API_BASE_URL = useMemo(() => import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:5000/api", [])
+  const API_BASE_URL = useMemo(() => {
+    const raw = import.meta.env.VITE_API_URL?.trim()
+    if (!raw) return "http://localhost:5000/api"
+    const normalized = raw.replace(/\/$/, "")
+    return normalized.endsWith("/api") ? normalized : `${normalized}/api`
+  }, [])
   const ASSET_BASE_URL = useMemo(() => import.meta.env.VITE_ASSET_URL?.replace(/\/$/, "") || "http://localhost:5000", [])
 
   const roleLabels = useMemo(() => ({

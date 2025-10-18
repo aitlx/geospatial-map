@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import axios from "axios";
 
+// auth check states
 const AUTH_STATES = {
   LOADING: "loading",
   AUTHENTICATED: "authenticated",

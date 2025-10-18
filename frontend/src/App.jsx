@@ -6,6 +6,8 @@ import Home from './pages/Home';
 import VerifyEmail from '../src/pages/verifyEmail'; 
 import VerifyPhone from './pages/VerifyPhone';
 import AdminAuthPortal from "./pages/AdminAuthPortal";
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import AdminDashboard from "./pages/AdminDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import GeospatialMap from "./pages/GeospatialMap";
@@ -39,9 +41,12 @@ function App() {
       <Routes>
         <Route path='/' element={<GeospatialMap />} />
         <Route path='/login' element={<Login />} />
+  <Route path='/forgot-password' element={<ForgotPassword />} />
+  <Route path='/reset-password' element={<ResetPassword />} />
         <Route path='/verify-email' element={<VerifyEmail />} />
   <Route path='/verify-phone' element={<VerifyPhone />} />
-        <Route path='/admin/login' element={<AdminAuthPortal />} />
+  <Route path='/admin/login' element={<AdminAuthPortal />} />
+  <Route path='/auth/admin/login' element={<Navigate to='/admin/login' replace />} />
         <Route path='/admin/dashboard' element={<AdminDashboard />} />
         {homeRoutes.map(({ path, view }) => (
           <Route

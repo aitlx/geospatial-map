@@ -1,181 +1,175 @@
-import fs from "fs/promises"
-import { backupService } from "../services/backupService.js"
-import { handleResponse } from "../utils/handleResponse.js"
-import { logService } from "../services/logService.js"
+import path from 'path'
+import fs from 'fs-extra'
+import backupService from '../services/backupService.js'
+import { handleResponse } from '../utils/handleResponse.js'
+import pool from '../config/db.js'
 
-const attemptAudit = async (payload) => {
+const BACKUP_DIR = path.resolve(process.cwd(), 'backups')
+
+export const createManualBackup = async (req, res) => {
+  const { type = 'manual' } = req.body || {}
   try {
-    await logService.add(payload)
-  } catch (error) {
-    console.error("failed to record backup audit log", error)
+    // create SQL dump
+    const { sqlPath, outArchive, baseName } = await backupService.createDatabaseBackup(type)
+
+    // compress
+    const result = await backupService.compressBackup(sqlPath, outArchive)
+
+    // file size in MB
+    const stat = await fs.stat(outArchive)
+    const sizeMb = Number((stat.size / (1024 * 1024)).toFixed(2))
+
+    // save log
+    await backupService.saveBackupLog(type, path.basename(outArchive), sizeMb, 'completed')
+
+    // cleanup SQL
+    await fs.remove(sqlPath).catch(() => null)
+
+    return handleResponse(res, 200, 'backup created', { filename: path.basename(outArchive), sizeMb, bytes: result.bytes })
+  } catch (err) {
+    console.error('createManualBackup error:', err)
+    // attempt to save failed log
+    try { await backupService.saveBackupLog(type, `failed_${Date.now()}.tar.gz`, null, 'failed', String(err?.message || err)) } catch {}
+    return handleResponse(res, 500, 'failed to create backup')
   }
 }
 
-const normalizeBackupId = (rawId) => {
-  if (!rawId) return null
-  const parsed = Number.parseInt(rawId, 10)
-  return Number.isNaN(parsed) ? null : parsed
-}
-
-const mapBackupRecord = (record) => {
-  if (!record) return null
-
-  return {
-    id: record.backup_id,
-    fileName: record.filename,
-    originalName: record.original_filename,
-    size: record.file_size,
-    mimeType: record.mime_type,
-    storagePath: record.storage_path,
-    createdAt: record.created_at,
-    notes: record.notes,
-    createdBy: record.created_by
-      ? {
-          id: record.created_by,
-          name: record.created_by_name ?? null,
-          email: record.created_by_email ?? null,
-        }
-      : null,
-    downloadUrl: record.backup_id ? `/api/backups/${record.backup_id}/download` : null,
+export const getAllBackups = async (req, res) => {
+  try {
+    const items = await backupService.listAllBackups()
+    return handleResponse(res, 200, 'ok', items)
+  } catch (err) {
+    console.error('getAllBackups error:', err)
+    return handleResponse(res, 500, 'failed to list backups')
   }
 }
 
-export const createBackup = async (req, res, next) => {
+export const downloadBackup = async (req, res) => {
+  const { filename } = req.params || {}
+  if (!filename) return handleResponse(res, 400, 'filename required')
+
+  const p = path.join(BACKUP_DIR, filename)
   try {
-    const file = req.file
-    if (!file) {
-      return handleResponse(res, 400, "Please attach a backup file to upload.")
-    }
-
-    const notes = typeof req.body?.notes === "string" ? req.body.notes.trim().slice(0, 500) : null
-    const createdBy = req.user?.id ?? null
-
-    const backupRecord = await backupService.create({
-      filename: file.filename,
-      originalName: file.originalname,
-      fileSize: file.size,
-      mimeType: file.mimetype,
-      storagePath: file.path,
-      createdBy,
-      notes,
-    })
-
-    const fullRecord = await backupService.findById(backupRecord.backup_id)
-    const shaped = mapBackupRecord(fullRecord ?? backupRecord)
-
-    await attemptAudit({
-      userId: req.user?.id ?? null,
-      roleId: req.user?.roleID ?? null,
-      action: "BACKUP_UPLOADED",
-      targetTable: "backups",
-      targetId: backupRecord.backup_id,
-      details: {
-        summary: "Backup uploaded",
-        fileSizeBytes: backupRecord.file_size ?? null,
-        hasOriginalFilename: Boolean(backupRecord.original_filename),
-        notesIncluded: Boolean(notes),
-      },
-    })
-
-    return handleResponse(res, 201, "Backup archived successfully.", shaped)
-  } catch (error) {
-    return next(error)
+    if (!await fs.pathExists(p)) return handleResponse(res, 404, 'file not found')
+    return res.download(p)
+  } catch (err) {
+    console.error('downloadBackup error:', err)
+    return handleResponse(res, 500, 'failed to download backup')
   }
 }
 
-export const listBackups = async (req, res, next) => {
+// Download by backup record id: looks up DB record then serves the file
+export const downloadBackupById = async (req, res) => {
+  const { id } = req.params || {}
+  if (!id) return handleResponse(res, 400, 'id required')
+
   try {
-    const backups = await backupService.list()
-    const data = backups.map(mapBackupRecord)
-    return handleResponse(res, 200, "Backups fetched successfully.", { results: data })
-  } catch (error) {
-    return next(error)
+    const record = await backupService.getBackupById(id)
+    if (!record) return handleResponse(res, 404, 'backup not found')
+
+    const p = path.join(BACKUP_DIR, record.filename)
+    if (!await fs.pathExists(p)) return handleResponse(res, 404, 'file not found')
+    return res.download(p)
+  } catch (err) {
+    console.error('downloadBackupById error:', err)
+    return handleResponse(res, 500, 'failed to download backup')
   }
 }
 
-export const downloadBackup = async (req, res, next) => {
+export const deleteBackup = async (req, res) => {
+  const { id } = req.params || {}
+  if (!id) return handleResponse(res, 400, 'id required')
+
   try {
-    const backupId = normalizeBackupId(req.params.id)
-    if (backupId === null) {
-      return handleResponse(res, 400, "Invalid backup identifier.")
-    }
+    const record = await backupService.getBackupById(id)
+    if (!record) return handleResponse(res, 404, 'backup not found')
 
-    const record = await backupService.findById(backupId)
-
-    if (!record) {
-      return handleResponse(res, 404, "Backup not found.")
-    }
-
-    const absolutePath = backupService.resolveAbsolutePath(record.storage_path, record.filename)
-    if (!absolutePath) {
-      return handleResponse(res, 500, "Backup file path is missing.")
-    }
-
+    // delete file
     try {
-      await fs.access(absolutePath)
-    } catch (error) {
-      if (error?.code === "ENOENT") {
-        return handleResponse(res, 404, "Backup file is no longer available on the server.")
-      }
-      throw error
+      await backupService.deleteBackupFile(record.filename)
+    } catch (err) {
+      console.warn('deleteBackup: failed to delete file', err?.message || err)
     }
 
-    const downloadName = record.original_filename || record.filename || "municipal-backup"
+    // delete DB record
+    try {
+      await pool.query(`DELETE FROM backup_logs WHERE id = $1`, [id])
+    } catch (err) {
+      console.warn('deleteBackup: failed to delete DB record', err?.message || err)
+    }
 
-    res.download(absolutePath, downloadName, async (err) => {
-      if (err) {
-        return next(err)
-      }
-
-      await attemptAudit({
-        userId: req.user?.id ?? null,
-        roleId: req.user?.roleID ?? null,
-        action: "BACKUP_DOWNLOADED",
-        targetTable: "backups",
-        targetId: record.backup_id,
-        details: {
-          summary: "Backup downloaded",
-          hasOriginalFilename: Boolean(record.original_filename),
-          fileSizeBytes: record.file_size ?? null,
-        },
-      })
-    })
-  } catch (error) {
-    return next(error)
+    return handleResponse(res, 200, 'backup deleted')
+  } catch (err) {
+    console.error('deleteBackup error:', err)
+    return handleResponse(res, 500, 'failed to delete backup')
   }
 }
 
-export const deleteBackup = async (req, res, next) => {
+export const uploadBackup = async (req, res) => {
+  // Entry logging
+  console.log('uploadBackup: entered', { user: req.user?.id ?? null })
+
+  if (!req.file) {
+    console.error('uploadBackup: no file attached on request')
+    return handleResponse(res, 400, 'Please attach a backup file to upload.')
+  }
+
+  const { originalname, filename, mimetype, size, path: tmpPath } = req.file
+
+  console.log('uploadBackup: received file', { originalname, filename, mimetype, size, tmpPath })
+
+  const destDir = path.resolve(process.cwd(), 'backups')
+  await fs.ensureDir(destDir)
+  const destPath = path.join(destDir, filename)
+
   try {
-    const backupId = normalizeBackupId(req.params.id)
-    if (backupId === null) {
-      return handleResponse(res, 400, "Invalid backup identifier.")
+    await fs.move(tmpPath, destPath, { overwrite: true })
+    console.log('uploadBackup: moved file to', destPath)
+  } catch (moveErr) {
+    console.error('uploadBackup: fs.move failed', { tmpPath, destPath, error: moveErr?.message })
+    console.error(moveErr?.stack || moveErr)
+    // Attempt to cleanup tmp if present
+    try { if (tmpPath && await fs.pathExists(tmpPath)) await fs.remove(tmpPath) } catch (e) { /* ignore */ }
+    return handleResponse(res, 500, 'failed to move uploaded file')
+  }
+
+  let sizeMb = null
+  try {
+    const stat = await fs.stat(destPath)
+    sizeMb = Number((stat.size / (1024 * 1024)).toFixed(2))
+  } catch (statErr) {
+    console.warn('uploadBackup: fs.stat failed', { destPath, error: statErr?.message })
+  }
+
+  // Try saving to DB; if it fails, undo moved file and return an error so caller knows upload did NOT fully succeed
+  try {
+    // Use 'manual' to match the backup_type_enum values in the DB
+    const record = await backupService.saveBackupLog('manual', filename, sizeMb, 'completed')
+    console.log('uploadBackup: saveBackupLog succeeded', { id: record?.id ?? null })
+    return handleResponse(res, 201, 'uploaded', record)
+  } catch (dbErr) {
+    console.error('uploadBackup: saveBackupLog failed', dbErr?.message)
+    console.error(dbErr?.stack || dbErr)
+
+    // Attempt to remove the file we moved to avoid inconsistency between filesystem and DB
+    try {
+      if (await fs.pathExists(destPath)) {
+        await fs.remove(destPath)
+        console.log('uploadBackup: cleaned up moved file after DB failure', destPath)
+      }
+    } catch (cleanupErr) {
+      console.warn('uploadBackup: failed to cleanup moved file after DB failure', cleanupErr?.message)
     }
 
-    const removed = await backupService.remove(backupId)
-
-    if (!removed) {
-      return handleResponse(res, 404, "Backup not found.")
-    }
-
-    await attemptAudit({
-      userId: req.user?.id ?? null,
-      roleId: req.user?.roleID ?? null,
-      action: "BACKUP_DELETED",
-      targetTable: "backups",
-      targetId: removed.backup_id,
-      details: {
-        summary: "Backup deleted",
-        hadOriginalFilename: Boolean(removed.original_filename),
-        fileSizeBytes: removed.file_size ?? null,
-      },
-    })
-
-    return handleResponse(res, 200, "Backup deleted successfully.", {
-      id: backupId,
-      filename: removed.filename,
-    })
-  } catch (error) {
-    return next(error)
+    return handleResponse(res, 500, 'failed to record uploaded backup')
   }
 }
+
+export default {
+  createManualBackup,
+  getAllBackups,
+  downloadBackup,
+  deleteBackup,
+  uploadBackup,
+}
+

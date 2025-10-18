@@ -1,6 +1,8 @@
 import { Cog } from "lucide-react"
 
+// system settings area (tooling in preparation)
 export default function SystemSettings() {
+  // ui will allow platform maintenance and feature flags once ready
   return (
     <section className="px-4 py-6 text-slate-800 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl space-y-6 rounded-3xl border border-cyan-200 bg-white p-8 shadow-sm">

@@ -15,7 +15,7 @@ const MENU_SECTIONS = {
 	superAdmin: [
 		{
 			items: [
-				{ id: "dashboard-overview", label: "Superadmin's dashboard", icon: LayoutDashboard },
+				{ id: "dashboard-overview", label: "Dashboard", icon: LayoutDashboard },
 				{ id: "roles-access", label: "Roles & access", icon: ShieldCheck },
 				{ id: "user-management", label: "User directory", icon: Users },
 				{ id: "crop-configuration", label: "Recommendations", icon: Sprout },
@@ -29,10 +29,10 @@ const MENU_SECTIONS = {
 	admin: [
 		{
 			items: [
-				{ id: "dashboard-overview", label: "Admin's dashboard", icon: LayoutDashboard },
+				{ id: "dashboard-overview", label: "Dashboard", icon: LayoutDashboard },
 				{ id: "submission-reviews", label: "Submissions", icon: ClipboardCheck },
 				{ id: "crops-admin", label: "Crops", icon: Sprout },
-				{ id: "user-management", label: "User management", icon: Users },
+				{ id: "technician-management", label: "User management", icon: Users },
 				{ id: "reports-analytics", label: "Analytics", icon: BarChart3 },
 				{ id: "settings", label: "Account settings", icon: Settings },
 			],
@@ -43,8 +43,16 @@ const MENU_SECTIONS = {
 const SIDEBAR_WIDTH = "w-64"
 
 export default function SidebarAdmin({ activeItem, onItemClick, roleId, isOpen, onClose }) {
+	// feature flag: hide recommendations link until functionality is ready
+	const SHOW_RECOMMENDATIONS = false
 	const roleKey = roleId === 1 ? "superAdmin" : "admin"
 	const sections = MENU_SECTIONS[roleKey] ?? MENU_SECTIONS.admin
+
+	// If recommendations are disabled, filter out the crop-configuration item
+	const filteredSections = sections.map((sec) => ({
+		...sec,
+		items: sec.items.filter((it) => (SHOW_RECOMMENDATIONS ? true : it.id !== 'crop-configuration')),
+	}))
 	const hasToggleState = typeof isOpen === "boolean"
 	const resolvedOpen = hasToggleState ? isOpen : true
 
@@ -92,7 +100,7 @@ export default function SidebarAdmin({ activeItem, onItemClick, roleId, isOpen, 
 
 					<nav className="flex-1 overflow-y-auto px-4 py-5">
 						<div className="space-y-6">
-							{sections.map((section, index) => (
+							{filteredSections.map((section, index) => (
 								<div key={section.title || index} className="space-y-3">
 									{section.title ? (
 										<p className="px-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">

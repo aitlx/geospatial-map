@@ -1,4 +1,6 @@
+// configuration screen for crop recommendation engine (disabled)
 export default function CropRecommendationConfiguration() {
+  // ui disabled until engine is production-ready
   return (
     <section className="px-4 py-6 text-slate-800 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl space-y-6 rounded-3xl border border-emerald-200 bg-white p-8 shadow-sm">

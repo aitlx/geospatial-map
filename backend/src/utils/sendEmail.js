@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 
-// Function to resolve the transporter
+// function to resolve the transporter
 const resolveTransporter = () => {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_SERVICE, NODE_CODE_SENDING_EMAIL_ADDRESS, NODE_CODE_SENDING_EMAIL_PASSWORD } = process.env;
 
