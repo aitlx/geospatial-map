@@ -1,0 +1,8 @@
+{
+  "type": "table",
+  "rows": [
+    { "barangay": "San Isidro", "crop": "Rice", "year": "2025", "yield_mt": 12.4, "price": 18.5 },
+    { "barangay": "San Miguel", "crop": "Corn", "year": "2025", "yield_mt": 8.2, "price": 15.3 },
+    { "barangay": "San Rafael", "crop": "Rice", "year": "2024", "yield_mt": 9.7, "price": 17.8 }
+  ]
+}
