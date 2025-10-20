@@ -33,9 +33,26 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
 }
 
+// allowlist for cors - includes production and local dev hosts
+const allowedOrigins = [
+  "https://guagua-geospatial-map.netlify.app/",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+];
+
 app.use(
   cors({
-    origin: "https://geospatail-map.netlify.app/",
+    origin: (origin, callback) => {
+      // allow requests with no origin (e.g., curl, mobile clients)
+      if (!origin) return callback(null, true);
+      // strip trailing slash if present
+      const normalized = origin.replace(/\/$/, "");
+      if (allowedOrigins.includes(normalized)) {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS policy: origin not allowed"), false);
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   })

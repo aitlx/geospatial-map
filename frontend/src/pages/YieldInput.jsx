@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "../api";
 import { Plus, Search, Edit2, Trash2, X } from "lucide-react";
 import { useTranslation } from "../hooks/useTranslation";
 

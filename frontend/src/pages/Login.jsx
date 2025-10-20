@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
+import api from "../api";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import {
@@ -26,10 +26,7 @@ export default function Login() {
 
   const navigate = useNavigate();
 
-	const API_BASE_URL = useMemo(
-		() => import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:5000/api",
-		[]
-	);
+		// api instance provides baseURL and withCredentials
 
 	const extractRoleId = useCallback((candidate) => {
 		if (!candidate || typeof candidate !== "object") return null;
@@ -85,32 +82,30 @@ export default function Login() {
 			};
 		}
 
-		const verifyRemoteSession = async () => {
-			try {
-				const response = await axios.get(`${API_BASE_URL}/user/me`, {
-					withCredentials: true,
-				});
-				if (!isMounted) return;
-				const roleId = extractRoleId(response.data?.data);
-				if (roleId !== null) {
-					redirectIfAuthenticated(roleId);
-					return;
-				}
+				const verifyRemoteSession = async () => {
+					try {
+						const response = await api.get(`/user/me`);
+						if (!isMounted) return;
+						const roleId = extractRoleId(response.data?.data);
+						if (roleId !== null) {
+							redirectIfAuthenticated(roleId);
+							return;
+						}
 					} catch {
-						/* ignore remote session verification errors */
-			} finally {
-				if (isMounted && !redirected) {
-					setCheckingSession(false);
-				}
-			}
-		};
+						// ignore remote session verification errors
+					} finally {
+						if (isMounted && !redirected) {
+							setCheckingSession(false);
+						}
+					}
+				};
 
 		verifyRemoteSession();
 
 		return () => {
 			isMounted = false;
 		};
-	}, [API_BASE_URL, extractRoleId, navigate, resolveDestination]);
+		}, [extractRoleId, navigate, resolveDestination]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -124,11 +119,7 @@ export default function Login() {
     e.preventDefault();
     setIsLoading(true);
     try {
-			const response = await axios.post(
-				`${API_BASE_URL}/auth/login`,
-				formData,
-				{ withCredentials: true }
-			);
+			const response = await api.post(`/auth/login`, formData);
 			toast.success(response.data.message || "Login successful!");
 			if (typeof window !== "undefined") {
 				window.dispatchEvent(new Event("auth:login"));
@@ -137,30 +128,18 @@ export default function Login() {
 				navigate(getPathForView("dashboard") || "/Dashboard");
 			}, 1500);
     } catch (error) {
-      let msg = "An unexpected error occurred.";
+			const parseApiError = (err) => {
+				if (!err) return "An unexpected error occurred.";
+				if (err.response) {
+					const d = err.response.data;
+					if (typeof d === "string") return d;
+					return d?.message || d?.err || d?.error || JSON.stringify(d) || err.message;
+				}
+				if (err.request) return "No response from server. Check your network.";
+				return err.message || "An unexpected error occurred.";
+			};
 
-      if (error.response) {
-        const data = error.response.data;
-
-        // Handle different formats gracefully
-        if (typeof data === "string") {
-          msg = data;
-        } else if (data?.message) {
-          msg = data.message;
-        } else if (data?.err) {
-          msg = data.err;
-        } else if (data?.error) {
-          msg = data.error;
-        } else {
-          msg = JSON.stringify(data);
-        }
-      } else if (error.request) {
-        msg = "No response from server. Check your network.";
-      } else {
-        msg = error.message;
-      }
-
-      toast.error(msg);
+			toast.error(parseApiError(error));
     } finally {
       setIsLoading(false);
     }
