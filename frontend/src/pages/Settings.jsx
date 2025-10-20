@@ -2,7 +2,6 @@ import { User, Lock, Bell, Globe, Shield, Mail, Phone, CheckCircle, AlertCircle,
 import { useState, useEffect } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import PropTypes from "prop-types"
-// preferences removed for Language & region section
 import { API_URL } from "../api"
 
 const ROLE_LABELS = {
@@ -357,8 +356,6 @@ export default function Settings({ onAdminNavigate, adminNotice, onNoticeConsume
               </div>
             </div>
           </article>
-
-          {/* Language & region removed per request */}
         </div>
       </div>
     </section>
