@@ -17,46 +17,154 @@ import EditProfile from "../components/EditProfile"
 import SettingsPage from "../pages/Settings"
 import ChangePassword from "../pages/ChangePassword"
 
-const useAdminUser = (navigate) => {
+const useAdminUser = (navigate, apiBaseUrl) => {
   const [user, setUser] = useState(null)
   const [checked, setChecked] = useState(false)
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("user")
-      if (!stored) {
-        navigate("/admin/login", { replace: true })
-        return
-      }
+    let isMounted = true
 
-      const parsed = JSON.parse(stored)
-      const roleId = parsed?.roleID ?? parsed?.roleid
-
-      if (roleId === 1 || roleId === 2) {
-        setUser(parsed)
-      } else {
-        navigate("/admin/login", { replace: true })
-        return
+    const normalizeRoleId = (value) => {
+      if (typeof value === "string") {
+        const parsed = Number.parseInt(value, 10)
+        return Number.isFinite(parsed) ? parsed : null
       }
-    } catch {
-      localStorage.removeItem("user")
-      navigate("/admin/login", { replace: true })
-      return
-    } finally {
-      setChecked(true)
+      if (Number.isFinite(value)) return value
+      return null
     }
-  }, [navigate])
+
+    const persistUser = (candidate) => {
+      try {
+        if (!candidate) {
+          localStorage.removeItem("user")
+          return
+        }
+        localStorage.setItem("user", JSON.stringify(candidate))
+      } catch {
+        /* ignore storage errors */
+      }
+    }
+
+    const resolveLocalUser = () => {
+      if (typeof window === "undefined") return null
+      try {
+        const raw = window.localStorage.getItem("user")
+        if (!raw) return null
+        const parsed = JSON.parse(raw)
+        const roleId = normalizeRoleId(parsed?.roleID ?? parsed?.roleid)
+        if (roleId === 1 || roleId === 2) {
+          return { ...parsed, roleID: roleId, roleid: roleId }
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+      return null
+    }
+
+    const handleFailure = () => {
+      if (!isMounted) return
+      setUser(null)
+      persistUser(null)
+      navigate("/admin/login", { replace: true })
+    }
+
+    const verifySession = async () => {
+      const localUser = resolveLocalUser()
+      if (isMounted) {
+        setUser(localUser)
+      }
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/user/me`, {
+          method: "GET",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        })
+
+        if (!response.ok) {
+          throw new Error(`session check failed (${response.status})`)
+        }
+
+        const payload = await response.json()
+        const data = payload?.data ?? payload ?? null
+        const roleId = normalizeRoleId(data?.roleID ?? data?.roleid)
+
+        if (roleId !== 1 && roleId !== 2) {
+          throw new Error("non-admin session")
+        }
+
+        const enrichedUser = {
+          ...data,
+          roleID: roleId,
+          roleid: roleId,
+        }
+
+        if (isMounted) {
+          setUser(enrichedUser)
+          persistUser(enrichedUser)
+        }
+      } catch (error) {
+        console.debug("Admin session verification failed", error)
+        handleFailure()
+      } finally {
+        if (isMounted) {
+          setChecked(true)
+        }
+      }
+    }
+
+    verifySession()
+
+    const handleAuthEvent = () => {
+      setChecked(false)
+      verifySession()
+    }
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("auth:login", handleAuthEvent)
+      window.addEventListener("auth:logout", handleAuthEvent)
+    }
+
+    return () => {
+      isMounted = false
+      if (typeof window !== "undefined") {
+        window.removeEventListener("auth:login", handleAuthEvent)
+        window.removeEventListener("auth:logout", handleAuthEvent)
+      }
+    }
+  }, [apiBaseUrl, navigate])
 
   return { user, checked, setUser }
 }
 
 const DEFAULT_PAGE = "dashboard-overview"
-const ADMIN_DEFAULT_PAGE = "submission-reviews"
-const SUPER_ADMIN_ONLY_ITEMS = new Set(["roles-access", "crop-configuration", "activity-logs", "backups", "system-settings"])
+const ADMIN_DEFAULT_PAGE = "dashboard-overview"
+const SUPER_ADMIN_ONLY_ITEMS = new Set([
+  "roles-access",
+  "user-management",
+  "recommendations",
+  "crop-configuration",
+  "activity-logs",
+  "backups",
+  "system-settings",
+])
+const ADMIN_ONLY_ITEMS = new Set([
+  "submission-reviews",
+  "crop-management",
+  "crops-admin",
+  "reports-analytics",
+  "technician-management",
+])
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
-  const { user, checked, setUser } = useAdminUser(navigate)
+  const apiBaseUrl = useMemo(() => {
+    const raw = import.meta.env.VITE_API_URL?.trim()
+    if (!raw) return "http://localhost:5000/api"
+    const normalized = raw.replace(/\/$/, "")
+    return normalized.endsWith("/api") ? normalized : `${normalized}/api`
+  }, [])
+  const { user, checked, setUser } = useAdminUser(navigate, apiBaseUrl)
   const [activeItem, setActiveItem] = useState(DEFAULT_PAGE)
   const [profileSuccessMessage, setProfileSuccessMessage] = useState("")
   const [settingsNotice, setSettingsNotice] = useState("")
@@ -124,21 +232,21 @@ export default function AdminDashboard() {
 
     if (roleId === 2) {
       sharedPages["submission-reviews"] = () => <SubmissionReviews />
+      sharedPages["technician-management"] = () => <UserManagement roleFilter="technician" />
+      const renderCropManagement = () => <CropsAdmin />
+      sharedPages["crop-management"] = renderCropManagement
+      sharedPages["crops-admin"] = renderCropManagement
     }
 
     if (roleId === 1) {
       sharedPages["user-management"] = () => <UserManagement />
       sharedPages["roles-access"] = () => <RolesAccess />
-      sharedPages["crops-admin"] = () => <CropsAdmin />
-      sharedPages["crop-configuration"] = () => <CropRecommendationConfiguration />
+      const renderRecommendations = () => <CropRecommendationConfiguration />
+      sharedPages["recommendations"] = renderRecommendations
+      sharedPages["crop-configuration"] = renderRecommendations
       sharedPages["activity-logs"] = () => <ActivityLogs />
       sharedPages.backups = () => <Backups />
       sharedPages["system-settings"] = () => <SystemSettingsModule />
-    } else if (roleId === 2) {
-      sharedPages["user-management"] = () => <UserManagement />
-      sharedPages["crops-admin"] = () => <CropsAdmin />
-    } else {
-      sharedPages["user-management"] = () => <UserManagement />
     }
 
     return sharedPages
@@ -174,12 +282,16 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!roleId) return
 
+    console.log('[AdminDashboard] Protection check:', { roleId, activeItem })
+
     if (roleId !== 1 && SUPER_ADMIN_ONLY_ITEMS.has(activeItem)) {
+      console.log('[AdminDashboard] Non-superadmin trying to access superadmin page, redirecting to dashboard')
       const fallback = roleId === 2 ? ADMIN_DEFAULT_PAGE : DEFAULT_PAGE
       setActiveItem(fallback)
     }
 
-    if (roleId === 1 && activeItem === "submission-reviews") {
+    if (roleId === 1 && ADMIN_ONLY_ITEMS.has(activeItem)) {
+      console.log('[AdminDashboard] Superadmin trying to access admin-only page, redirecting to dashboard')
       setActiveItem(DEFAULT_PAGE)
     }
   }, [roleId, activeItem, setActiveItem])
@@ -213,8 +325,8 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-100 text-emerald-900">
-      <div className="flex">
+    <div className="relative min-h-screen bg-gradient-to-br from-emerald-950/5 via-emerald-50 to-white text-emerald-900">
+      <div className="flex min-h-screen">
         <SidebarAdmin
           activeItem={activeItem}
           onItemClick={setActiveItem}
@@ -222,15 +334,17 @@ export default function AdminDashboard() {
           isOpen={sidebarOpen}
           onClose={handleCloseSidebar}
         />
-        <main className="flex flex-1 flex-col">
+        <main className="flex min-h-screen flex-1 flex-col bg-transparent">
           <AdminHeader
             user={user}
             roleId={roleId}
             activeItem={activeItem}
             onNavigate={setActiveItem}
             onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+            sidebarOpen={sidebarOpen}
+            sidebarOverlay={typeof window !== 'undefined' ? sidebarOpen && window.innerWidth < 1024 : false}
           />
-          <div className="flex-1 overflow-y-auto bg-gradient-to-br from-emerald-50/60 via-white to-emerald-100/60 px-6 pb-10 pt-6">
+          <div className="flex-1 overflow-y-auto px-4 pb-12 pt-6 sm:px-6 lg:px-8">
             <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
               <ActiveComponent />
             </div>

@@ -1,8 +1,8 @@
 import { User, Lock, Bell, Globe, Shield, Mail, Phone, CheckCircle, AlertCircle, Sun, Moon } from "lucide-react"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import PropTypes from "prop-types"
-import { usePreferences } from "../context/PreferencesContext.jsx"
+import { API_URL } from "../api"
 
 const ROLE_LABELS = {
   1: "Super Administrator",
@@ -19,9 +19,6 @@ export default function Settings({ onAdminNavigate, adminNotice, onNoticeConsume
     updates: false,
   })
   const [securityNotice, setSecurityNotice] = useState("")
-  const { theme, languages, language, setLanguage } = usePreferences()
-  const isDarkMode = theme === "dark"
-  const availableLanguages = useMemo(() => languages ?? [], [languages])
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -48,20 +45,33 @@ export default function Settings({ onAdminNavigate, adminNotice, onNoticeConsume
   useEffect(() => {
     const fetchUserData = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/user/me', {
+  const response = await fetch(`${API_URL}/user/me`, {
           credentials: 'include'
         })
-        
-        if (response.ok) {
-          const data = await response.json()
-          const rawUser = data?.data || {}
-          setUserData({
-            ...rawUser,
-            contactnumber: rawUser?.contactnumber || rawUser?.contactNumber || "",
-            roleLabel: rawUser?.roleLabel || rawUser?.role || ROLE_LABELS[rawUser?.roleid] || "User",
-          })
+        if (!response.ok) {
+          // surface server response body for debugging (may be JSON or plain text)
+          let body = null
+          try {
+            body = await response.text()
+          } catch (e) {
+            body = `<unreadable: ${String(e)}>`
+          }
+          // log status and body to help trace 500s in browser console during development
+          console.error("GET /user/me failed", { status: response.status, body })
+          setUserData(null)
+          return
         }
+
+        const data = await response.json()
+        const rawUser = data?.data || {}
+        setUserData({
+          ...rawUser,
+          contactnumber: rawUser?.contactnumber || rawUser?.contactNumber || "",
+          roleLabel: rawUser?.roleLabel || rawUser?.role || ROLE_LABELS[rawUser?.roleid] || "User",
+        })
       } catch {
+  // log unexpected errors (network, JSON parse, etc.) to the console
+  console.error("fetchUserData error", arguments)
         setUserData(null)
       } finally {
         setLoading(false)
@@ -343,69 +353,6 @@ export default function Settings({ onAdminNavigate, adminNotice, onNoticeConsume
                     }`}
                   />
                 </button>
-              </div>
-            </div>
-          </article>
-
-          <article className="rounded-3xl border border-emerald-100/70 bg-white/90 p-6 shadow-sm shadow-emerald-900/5">
-            <div className="mb-6 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
-                <Globe className="h-6 w-6" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Language &amp; region</h2>
-                <p className="text-sm text-slate-500">Adjust how information shows up across the app.</p>
-              </div>
-            </div>
-            <div className="space-y-5">
-              <div className="space-y-3 rounded-2xl border border-emerald-100/80 bg-white/75 p-4 shadow-sm shadow-emerald-900/5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
-                      {isDarkMode ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-                    </span>
-                    <div>
-                      <p className="font-semibold text-slate-900">Appearance</p>
-                      <p className="text-sm text-slate-500">The interface follows your device theme automatically.</p>
-                    </div>
-                  </div>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">
-                    {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-                    {isDarkMode ? "Dark" : "Light"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Update your operating system's appearance settings if you want to switch themes.
-                </p>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-600/70" htmlFor="language-select">
-                  Language
-                </label>
-                <select
-                  id="language-select"
-                  value={language}
-                  onChange={(event) => setLanguage(event.target.value)}
-                  className="h-12 w-full rounded-xl border border-emerald-100 bg-white px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                >
-                  {availableLanguages.map((option) => (
-                    <option key={option.id} value={option.id} className="bg-white text-slate-700">
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-600/70">
-                  Timezone
-                </label>
-                <select className="h-12 w-full rounded-xl border border-emerald-100 bg-white px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200">
-                  <option className="bg-white text-slate-700">Asia/Manila (GMT+8)</option>
-                  <option className="bg-white text-slate-700">UTC</option>
-                  <option className="bg-white text-slate-700">America/New_York (GMT-5)</option>
-                </select>
               </div>
             </div>
           </article>

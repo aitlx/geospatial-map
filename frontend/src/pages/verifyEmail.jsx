@@ -39,7 +39,7 @@ export default function VerifyEmail() {
   const initialEmail = (stateEmail || queryEmail || "").trim().toLowerCase()
 
   const [emailAddress, setEmailAddress] = useState(initialEmail)
-  const [status, setStatus] = useState(params.get("code") ? STATUS.pending : STATUS.idle)
+  const [status, setStatus] = useState((params.get("code") || params.get("token")) ? STATUS.pending : STATUS.idle)
   const [feedbackMessage, setFeedbackMessage] = useState("")
   const [manualVerificationUrl, setManualVerificationUrl] = useState("")
   const [resendCooldown, setResendCooldown] = useState(0)
@@ -47,7 +47,7 @@ export default function VerifyEmail() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const activeItem = originView === "settings" ? "settings" : "verify-email"
   const isAlreadyVerified = status === STATUS.already
-  const successButtonLabel = isAlreadyVerified && originView === "settings" ? "Back to settings" : "Go to login"
+  const successButtonLabel = isAlreadyVerified && originView === "settings" ? "Back to settings" : "Go to dashboard"
 
   const verificationAttempted = useRef(false)
   const autoSendEligible = useRef(Boolean(initialEmail))
@@ -58,7 +58,7 @@ export default function VerifyEmail() {
       return
     }
 
-    navigate("/login", { replace: true })
+    navigate("/Geospatial-Map", { replace: true })
   }, [navigate, originView])
 
   const handleHeaderNavigate = useCallback(
@@ -77,7 +77,7 @@ export default function VerifyEmail() {
 
       navigate("/login")
     },
-    [navigate]
+    []
   )
 
   const handleSidebarNavigate = useCallback(
@@ -97,7 +97,7 @@ export default function VerifyEmail() {
 
       navigate("/login")
     },
-    [navigate]
+    []
   )
 
   const handleSuccessAction = useCallback(() => {
@@ -106,7 +106,8 @@ export default function VerifyEmail() {
       return
     }
 
-    navigate("/login", { replace: true })
+    // After successful verification, go to dashboard instead of logging out
+    navigate("/Geospatial-Map", { replace: true })
   }, [isAlreadyVerified, navigate, originView])
 
   useEffect(() => {
@@ -181,16 +182,12 @@ export default function VerifyEmail() {
       try {
         const response = await axios.patch("/api/auth/verify-code", {
           email: normalizedEmail,
-          code: codeValue,
+          token: codeValue,
         })
 
         toast.success(response.data?.message || "Email verified successfully!")
         setStatus(STATUS.success)
         setFeedbackMessage("Your email is now verified.")
-
-        setTimeout(() => {
-          navigate("/login", { replace: true })
-        }, 1800)
       } catch (error) {
         const errMessage =
           error.response?.data?.message ||
@@ -206,8 +203,8 @@ export default function VerifyEmail() {
   )
 
   useEffect(() => {
-    const codeFromQuery = params.get("code")
-  const emailForVerification = (params.get("email") || emailAddress || "").trim().toLowerCase()
+    const codeFromQuery = params.get("code") || params.get("token")
+    const emailForVerification = (params.get("email") || emailAddress || "").trim().toLowerCase()
 
     if (!codeFromQuery || verificationAttempted.current) {
       return
@@ -234,7 +231,10 @@ export default function VerifyEmail() {
       setFeedbackMessage("")
 
       try {
-        const response = await axios.post("/api/auth/send-code", { email: normalizedEmail })
+  // Append a debug flag in development/localhost so the server will include the
+  // error stack in the response body (helps diagnose 500s from the browser).
+  const debugQuery = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) ? '?debug=1' : ''
+  const response = await axios.post(`/api/auth/send-code${debugQuery}`, { email: normalizedEmail })
         const payload = response.data?.data || {}
         const alreadyVerified = Boolean(payload?.alreadyVerified || response.data?.alreadyVerified)
         const fallbackLink = payload?.verificationUrl || response.data?.verificationUrl || ""

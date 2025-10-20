@@ -1,19 +1,26 @@
+<<<<<<< HEAD
 import React, { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../api";
+=======
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import axios from "axios";
+>>>>>>> restore-fri-sat
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import {
-  ClipboardCheck,
-  Eye,
-  EyeOff,
-  HelpCircle,
-  Lock,
-  LogIn,
-  Mail,
-  Map,
+	ClipboardCheck,
+	Eye,
+	EyeOff,
+	HelpCircle,
+	Lock,
+	LogIn,
+	Mail,
+	Map,
 } from "lucide-react";
 import { getPathForView } from "../utils/viewRoutes.js";
+import { API_URL } from "../api";
 
 export default function Login() {
   const [formData, setFormData] = useState({
@@ -24,9 +31,14 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
 	const [checkingSession, setCheckingSession] = useState(true);
 
-  const navigate = useNavigate();
+	const navigate = useNavigate();
+	const location = useLocation();
 
+<<<<<<< HEAD
 		// api instance provides baseURL and withCredentials
+=======
+	const API_BASE_URL = useMemo(() => API_URL, []);
+>>>>>>> restore-fri-sat
 
 	const extractRoleId = useCallback((candidate) => {
 		if (!candidate || typeof candidate !== "object") return null;
@@ -51,13 +63,13 @@ export default function Login() {
 		let isMounted = true;
 		let redirected = false;
 
-		const redirectIfAuthenticated = (roleId) => {
-			const target = resolveDestination(roleId);
-			if (target) {
-				redirected = true;
-				navigate(target, { replace: true });
-			}
-		};
+			const redirectIfAuthenticated = (roleId) => {
+				const target = resolveDestination(roleId);
+				if (target) {
+					redirected = true;
+					navigate(target, { replace: true });
+				}
+			};
 
 		const checkLocalSession = () => {
 			if (typeof window === "undefined") return null;
@@ -71,16 +83,24 @@ export default function Login() {
 			}
 		};
 
-		const localRole = checkLocalSession();
-		if (localRole !== null) {
-			redirectIfAuthenticated(localRole);
-			if (isMounted && !redirected) {
-				setCheckingSession(false);
+				// if we arrived here via an explicit logout navigation, do not auto-redirect
+				// based on cached localStorage. This prevents a logout -> login -> redirect loop.
+				const navStateReason = location?.state?.reason ?? null
+				if (navStateReason === 'logout') {
+					setCheckingSession(false)
+				} else {
+				const localRole = checkLocalSession();
+				// only consider numeric role ids valid for auto-redirect
+				if (Number.isFinite(localRole)) {
+					redirectIfAuthenticated(localRole);
+					if (isMounted && !redirected) {
+						setCheckingSession(false);
+					}
+					return () => {
+						isMounted = false;
+					};
+				}
 			}
-			return () => {
-				isMounted = false;
-			};
-		}
 
 				const verifyRemoteSession = async () => {
 					try {
@@ -105,7 +125,11 @@ export default function Login() {
 		return () => {
 			isMounted = false;
 		};
+<<<<<<< HEAD
 		}, [extractRoleId, navigate, resolveDestination]);
+=======
+	}, [API_BASE_URL, extractRoleId, navigate, resolveDestination, location]);
+>>>>>>> restore-fri-sat
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -209,7 +233,7 @@ export default function Login() {
 										value={formData.email}
 										onChange={handleChange}
 										placeholder="technician@geoagritech.com"
-										className="flex-1 bg-transparent text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
+										className="flex-1 bg-white text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
 										required
 										autoComplete="email"
 									/>
@@ -229,7 +253,7 @@ export default function Login() {
 										value={formData.password}
 										onChange={handleChange}
 										placeholder="Enter your password"
-										className="flex-1 bg-transparent text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
+										className="flex-1 bg-white text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
 										required
 										autoComplete="current-password"
 									/>
@@ -265,7 +289,7 @@ export default function Login() {
 
 						<div className="space-y-1.5 text-[11px] text-slate-500">
 							<p>Need access? Contact your municipal administrator.</p>
-							<Link to="/forgot-password" className="font-semibold text-teal-600 transition hover:text-teal-700">Forgot password?</Link>
+							<Link to="/forgot-password" state={{ portal: 'technician' }} className="font-semibold text-teal-600 transition hover:text-teal-700">Forgot password?</Link>
 						</div>
 					</div>
 				</section>

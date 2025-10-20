@@ -4,6 +4,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { User, Mail, Phone, Camera, Loader2, FileText, Shield } from "lucide-react";
 
+// default profile image used if no upload
 const DEFAULT_PROFILE_IMAGE = "/default-profile.webp";
 
 export default function EditProfile({ onCancel, onSuccess }) {
@@ -20,10 +21,12 @@ export default function EditProfile({ onCancel, onSuccess }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const API_BASE_URL = useMemo(
-    () => import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:5000/api",
-    []
-  );
+  const API_BASE_URL = useMemo(() => {
+    const raw = import.meta.env.VITE_API_URL?.trim()
+    if (!raw) return "http://localhost:5000/api"
+    const normalized = raw.replace(/\/$/, "")
+    return normalized.endsWith("/api") ? normalized : `${normalized}/api`
+  }, [])
   const ASSET_BASE_URL = useMemo(
     () => import.meta.env.VITE_ASSET_URL?.replace(/\/$/, "") || "http://localhost:5000",
     []

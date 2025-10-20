@@ -4,13 +4,19 @@ import path from "path"
 import { handleResponse } from "../utils/handleResponse.js"
 
 const BACKUP_DIRECTORY = path.resolve("uploads/backups")
-const MAX_FILE_SIZE = 200 * 1024 * 1024 // 200MB
-const ALLOWED_EXTENSIONS = new Set([".sql"])
+const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
+// Accept SQL dumps and common archive formats used for backups
+const ALLOWED_EXTENSIONS = new Set([".sql", ".gz", ".zip", ".tar"])
 const ALLOWED_MIME_TYPES = new Set([
   "application/sql",
   "application/x-sql",
   "text/plain",
   "application/octet-stream",
+  "application/gzip",
+  "application/x-gzip",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/x-tar",
 ])
 
 const ensureBackupDirectory = () => {
@@ -44,15 +50,19 @@ const storage = multer.diskStorage({
 })
 
 const fileFilter = (req, file, cb) => {
-  const extension = path.extname(file.originalname || "").toLowerCase()
-  if (!ALLOWED_EXTENSIONS.has(extension)) {
-    return cb(new multer.MulterError("LIMIT_UNEXPECTED_FILE", file.fieldname))
+  const original = String(file.originalname || "").toLowerCase()
+  const extension = path.extname(original)
+
+  // special-case .tar.gz
+  const isTarGz = original.endsWith('.tar.gz')
+  if (!isTarGz && !ALLOWED_EXTENSIONS.has(extension)) {
+    return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname))
   }
 
   if (file.mimetype && !ALLOWED_MIME_TYPES.has(file.mimetype)) {
     // allow generic octet-stream uploads as long as extension is valid
-    if (file.mimetype !== "application/octet-stream") {
-      return cb(new multer.MulterError("LIMIT_UNEXPECTED_FILE", file.fieldname))
+    if (file.mimetype !== 'application/octet-stream') {
+      return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname))
     }
   }
 
@@ -70,12 +80,12 @@ const uploader = multer({
 const formatUploadErrorMessage = (error) => {
   if (error instanceof multer.MulterError) {
     switch (error.code) {
-      case "LIMIT_FILE_SIZE":
-        return "Backup file is too large. Maximum allowed size is 200MB."
-      case "LIMIT_UNEXPECTED_FILE":
-        return "Unsupported file type. Only .SQL database exports are accepted."
+      case 'LIMIT_FILE_SIZE':
+        return `Backup file is too large. Maximum allowed size is ${Math.round(MAX_FILE_SIZE / (1024 * 1024))}MB.`
+      case 'LIMIT_UNEXPECTED_FILE':
+        return 'Unsupported file type. Allowed: .sql, .gz, .tar, .zip (or .tar.gz).'
       default:
-        return error.message || "Upload failed. Please try again."
+        return error.message || 'Upload failed. Please try again.'
     }
   }
 

@@ -3,6 +3,7 @@ import PropTypes from "prop-types"
 import axios from "axios"
 import { Eye, EyeOff, Lock, ShieldCheck, X } from "lucide-react"
 
+// initial password modal state
 const INITIAL_STATE = Object.freeze({
   currentPassword: "",
   newPassword: "",

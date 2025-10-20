@@ -117,6 +117,9 @@ export default function AdminDashboardOverview() {
 	const topCrop = topCrops[0]
 	const totalYieldKg = pendingTrend.reduce((sum, item) => sum + safeNumber(item.totalYield), 0)
 
+	// toggle to true to re-enable recommendations UI
+	const SHOW_RECOMMENDATIONS = false
+
 	return (
 		<section className="space-y-6">
 			<header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -192,24 +195,27 @@ export default function AdminDashboardOverview() {
 					<p className="mt-3 text-xs text-emerald-500">Stay on top of reviews to keep barangay dashboards current.</p>
 				</div>
 
-				<div className="rounded-2xl bg-white/95 p-6 shadow-sm ring-1 ring-emerald-900/5">
-					<div className="flex items-center justify-between">
-						<div>
-							<p className="text-sm font-medium text-emerald-600">Top recommended crop</p>
-							<p className="mt-2 text-3xl font-bold text-emerald-900">
-								{topCrop?.crop_name ?? "–"}
-							</p>
+				{SHOW_RECOMMENDATIONS && (
+					<div className="rounded-2xl bg-white/95 p-6 shadow-sm ring-1 ring-emerald-900/5">
+						<div className="flex items-center justify-between">
+							<div>
+								<p className="text-sm font-medium text-emerald-600">Top recommended crop</p>
+								<p className="mt-2 text-3xl font-bold text-emerald-900">
+									{topCrop?.crop_name ?? "–"}
+								</p>
+							</div>
+							<span className="rounded-xl bg-emerald-100 p-3 text-emerald-600">
+								<Sprout className="h-6 w-6" />
+							</span>
 						</div>
-						<span className="rounded-xl bg-emerald-100 p-3 text-emerald-600">
-							<Sprout className="h-6 w-6" />
-						</span>
+						<p className="mt-3 text-xs text-emerald-500">
+							{topCrop
+								? `${decimalFormatter.format(safeNumber(topCrop.total_yield))} kg logged • ${numberFormatter.format(safeNumber(topCrop.report_count ?? topCrop.count ?? 0))} reports`
+								: "Collect more yield data to surface insights."}
+						</p>
 					</div>
-					<p className="mt-3 text-xs text-emerald-500">
-						{topCrop
-							? `${decimalFormatter.format(safeNumber(topCrop.total_yield))} kg logged • ${numberFormatter.format(safeNumber(topCrop.report_count ?? topCrop.count ?? 0))} reports`
-							: "Collect more yield data to surface insights."}
-					</p>
-				</div>
+				)}
+
 			</div>
 
 			<div className="grid gap-6 lg:grid-cols-2">
@@ -299,28 +305,30 @@ export default function AdminDashboardOverview() {
 				</div>
 			</div>
 
-			<div className="rounded-2xl bg-white/95 p-6 shadow-sm ring-1 ring-emerald-900/5">
-				<h2 className="text-lg font-semibold text-emerald-900">Crop recommendations spotlight</h2>
-				<p className="text-sm text-emerald-600">Most recommended crops based on approved yields.</p>
+			{SHOW_RECOMMENDATIONS && (
+				<div className="rounded-2xl bg-white/95 p-6 shadow-sm ring-1 ring-emerald-900/5">
+					<h2 className="text-lg font-semibold text-emerald-900">Crop recommendations spotlight</h2>
+					<p className="text-sm text-emerald-600">Most recommended crops based on approved yields.</p>
 
-				<div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-					{topCrops.length ? (
-						topCrops.map((crop) => (
-							<div key={crop.crop_id ?? crop.cropId ?? crop.crop_name} className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-								<p className="text-sm font-semibold text-emerald-900">{crop.crop_name ?? crop.cropName}</p>
-								<p className="mt-1 text-xs text-emerald-500">{decimalFormatter.format(safeNumber(crop.total_yield))} kg logged</p>
-								<p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-emerald-500">
-									{numberFormatter.format(safeNumber(crop.report_count ?? crop.count ?? 0))} reports
-								</p>
+					<div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+						{topCrops.length ? (
+							topCrops.map((crop) => (
+								<div key={crop.crop_id ?? crop.cropId ?? crop.crop_name} className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+									<p className="text-sm font-semibold text-emerald-900">{crop.crop_name ?? crop.cropName}</p>
+									<p className="mt-1 text-xs text-emerald-500">{decimalFormatter.format(safeNumber(crop.total_yield))} kg logged</p>
+									<p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-emerald-500">
+										{numberFormatter.format(safeNumber(crop.report_count ?? crop.count ?? 0))} reports
+									</p>
+								</div>
+							))
+						) : (
+							<div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 text-sm text-emerald-600">
+								Collect more data to unlock crop insights.
 							</div>
-						))
-					) : (
-						<div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 text-sm text-emerald-600">
-							Collect more data to unlock crop insights.
-						</div>
-					)}
+						)}
+					</div>
 				</div>
-			</div>
+			)}
 		</section>
 	)
 }

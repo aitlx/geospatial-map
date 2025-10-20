@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import axios from "axios"
 import { AlertCircle, CheckCircle2, Edit2, Loader2, Plus, RefreshCw, Sprout, Trash2 } from "lucide-react"
 
+// crop categories used in forms
 const CATEGORY_OPTIONS = [
   "Cereals",
   "Vegetables",
@@ -33,6 +34,7 @@ const categoryLabel = (value) => {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
 }
 
+// pagination size for lists
 const PAGE_SIZE = 15
 
 export default function CropsAdmin() {

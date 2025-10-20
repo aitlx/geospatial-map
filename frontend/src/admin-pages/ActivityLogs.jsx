@@ -31,7 +31,7 @@ const formatTimestamp = (value) => {
     timeStyle: "short",
   }).format(date)
 }
-
+// don't expose raw error details to users; log for debugging
 const formatRelativeTime = (value) => {
   if (!value) return "moments ago"
   const date = new Date(value)
@@ -214,7 +214,8 @@ const extractDetails = (rawDetails) => {
   }
 
   if (typeof details === "object") {
-    const { summary, message, description, ...rest } = details
+    // redact sensitive keys before showing meta
+  const { summary, message, description, error: _error, stack: _stack, sql: _sql, token: _token, password: _password, ...rest } = details
     const primary = summary || message || description || ""
     const meta = Object.entries(rest)
       .filter(([, value]) => value !== null && value !== undefined && value !== "")
@@ -264,13 +265,18 @@ export default function ActivityLogs() {
       setError("")
       setLastRefresh(new Date())
     } catch (err) {
+      // don't expose raw error details; keep details in console for devs
+      console.debug("ActivityLogs: fetchLogs error", err)
       const status = err.response?.status
       if (status === 403) {
         setError("You do not have permission to view system-wide activity logs.")
       } else if (status === 401) {
         setError("Your session has expired. Please sign in again to continue.")
+      } else if (status >= 500) {
+        setError("Unable to load activity logs right now. Please try again later.")
       } else {
-        setError(err.response?.data?.message || err.message || "Failed to load activity logs.")
+        // For other client-side failures, show a safe generic message
+        setError("Failed to load activity logs. Check your connection or try again.")
       }
       setLogs([])
     } finally {
@@ -346,10 +352,10 @@ export default function ActivityLogs() {
     }
   }, [page, totalPages])
 
-  const handleSubmitSearch = (event) => {
-    event.preventDefault()
-    setSearchTerm(searchInput)
-  }
+const handleSubmitSearch = (event) => {
+  event.preventDefault()
+  setSearchTerm(searchInput)
+}
 
   const handleResetSearch = () => {
     setSearchInput("")
@@ -366,9 +372,9 @@ export default function ActivityLogs() {
     <section className="px-4 py-6 text-slate-800 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-8">
         <header className="space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-amber-700">
+          <div className="inline-flex items-center gap-3">
             <History className="h-4 w-4 text-amber-600" />
-            Audit Trail
+            <span className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-600">audit trail</span>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>

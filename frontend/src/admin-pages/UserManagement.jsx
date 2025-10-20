@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import axios from "axios"
 import {
 	Users,
+	Calendar,
 	Plus,
 	Search,
 	RefreshCw,
@@ -21,12 +22,14 @@ import {
 	X,
 } from "lucide-react"
 
+// role ids and labels
 const ROLE_IDS = Object.freeze({
 	SUPERADMIN: 1,
 	ADMIN: 2,
 	TECHNICIAN: 3,
 })
 
+// human-friendly role labels
 const ROLE_LABELS = Object.freeze({
 	[ROLE_IDS.SUPERADMIN]: "Super Admin",
 	[ROLE_IDS.ADMIN]: "Admin",
@@ -103,6 +106,17 @@ const dateFormatter = new Intl.DateTimeFormat("en-PH", {
 	timeStyle: "short",
 })
 
+const dateOnlyFormatter = new Intl.DateTimeFormat("en-PH", {
+	dateStyle: "medium",
+})
+
+const formatDateOnly = (value) => {
+    if (!value) return "—"
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return String(value)
+    return dateOnlyFormatter.format(date)
+}
+
 const resolveStoredUser = () => {
 	if (typeof window === "undefined") return null
 	try {
@@ -152,7 +166,7 @@ const getInitialFormState = (overrides = {}) => ({
 	lastname: "",
 	email: "",
 	contactNumber: "",
-	gender: "Male",
+	gender: "",
 	birthday: "",
 	password: "",
 	roleId: String(ROLE_IDS.TECHNICIAN),
@@ -223,13 +237,22 @@ const StatusBanner = ({ type, message, onDismiss }) => {
 
 const UserActionButtons = ({
 	user,
+	onView,
 	onEdit,
-	onResetPassword,
 	onDelete,
-	resetting,
 	deleting,
 }) => (
-	<div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:justify-end">
+	<div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:justify-end">
+		{typeof onView === "function" ? (
+			<button
+				type="button"
+				onClick={() => onView(user)}
+				className="inline-flex min-w-[100px] items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700"
+			>
+				<Eye className="h-3.5 w-3.5" />
+				View
+			</button>
+		) : null}
 		<button
 			type="button"
 			onClick={() => onEdit(user)}
@@ -238,19 +261,7 @@ const UserActionButtons = ({
 			<Edit2 className="h-3.5 w-3.5" />
 			Edit
 		</button>
-		<button
-			type="button"
-			onClick={() => onResetPassword(user)}
-			disabled={resetting}
-			className={`inline-flex min-w-[100px] items-center justify-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
-				resetting
-					? "border-indigo-200 bg-indigo-100 text-indigo-500"
-					: "border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
-			}`}
-		>
-			{resetting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
-			Reset
-		</button>
+		{/* reset action removed per request - keep UI focused on view/edit/delete */}
 		<button
 			type="button"
 			onClick={() => onDelete(user)}
@@ -267,12 +278,13 @@ const UserActionButtons = ({
 	</div>
 )
 
-export default function UserManagement() {
+export default function UserManagement({ roleFilter}) {
 	const storedUser = useMemo(resolveStoredUser, [])
 	const [sessionUser, setSessionUser] = useState(() => storedUser)
 	const [accessChecked, setAccessChecked] = useState(false)
 
 	const [users, setUsers] = useState([])
+	const bdayRef = useRef(null)
 	const [pagination, setPagination] = useState(DEFAULT_PAGINATION)
 	const [summary, setSummary] = useState(DEFAULT_SUMMARY)
 	const [loading, setLoading] = useState(false)
@@ -301,6 +313,7 @@ export default function UserManagement() {
 	const [editingUser, setEditingUser] = useState(null)
 
 	const [passwordModal, setPasswordModal] = useState(DEFAULT_PASSWORD_MODAL)
+	const [viewingUser, setViewingUser] = useState(null)
 
 	const rawRoleId = sessionUser?.roleID ?? sessionUser?.roleid
 	const currentRoleId = rawRoleId === undefined || rawRoleId === null ? null : Number(rawRoleId)
@@ -424,6 +437,10 @@ export default function UserManagement() {
 			params.roles = ROLE_SLUG_TO_ID[filters.role]
 		}
 
+		if (roleFilter === "technician") {
+  		params.roles = ROLE_IDS.TECHNICIAN
+		}
+
 		try {
 			const response = await axios.get("/api/user", { params, withCredentials: true })
 			const payload = response?.data?.data ?? response?.data ?? {}
@@ -457,7 +474,7 @@ export default function UserManagement() {
 		} finally {
 			setLoading(false)
 		}
-	}, [activeSortOption.sortBy, activeSortOption.sortOrder, canManageUsers, filters.gender, filters.role, filters.status, isSuperAdmin, page, searchTerm])
+	}, [activeSortOption.sortBy, activeSortOption.sortOrder, canManageUsers, filters.gender, filters.role, filters.status, isSuperAdmin, page, searchTerm, roleFilter])
 
 	useEffect(() => {
 		if (!accessChecked) return
@@ -505,6 +522,14 @@ export default function UserManagement() {
 			setPage(1)
 		}
 	}
+
+	const openViewModal = useCallback((user) => {
+		setViewingUser(user)
+	}, [])
+
+	const closeViewModal = useCallback(() => {
+		setViewingUser(null)
+	}, [])
 
 	const dismissBanner = () => setBanner(null)
 
@@ -1090,8 +1115,8 @@ export default function UserManagement() {
 										</td>
 									</tr>
 								) : (
-									users.map((user) => {
-										const { deleting, resetting } = getActionIndicators(user)
+					users.map((user) => {
+						const { deleting } = getActionIndicators(user)
 
 										return (
 											<tr key={user.userid} className="hover:bg-slate-50">
@@ -1144,10 +1169,9 @@ export default function UserManagement() {
 												<td className="px-4 py-4 align-top">
 													<UserActionButtons
 														user={user}
+														onView={openViewModal}
 														onEdit={openEditModal}
-														onResetPassword={handleIssueTemporaryPassword}
 														onDelete={handleDelete}
-														resetting={resetting}
 														deleting={deleting}
 													/>
 												</td>
@@ -1216,6 +1240,7 @@ export default function UserManagement() {
 									<div className="mt-3">
 										<UserActionButtons
 											user={user}
+											onView={openViewModal}
 											onEdit={openEditModal}
 											onResetPassword={handleIssueTemporaryPassword}
 											onDelete={handleDelete}
@@ -1329,6 +1354,7 @@ export default function UserManagement() {
 										onChange={handleFormChange}
 										className="h-12 rounded-xl border border-slate-200 bg-white px-4 text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
 									>
+										<option value="" disabled>{"Select a gender"}</option>
 										<option value="Male">Male</option>
 										<option value="Female">Female</option>
 									</select>
@@ -1358,13 +1384,24 @@ export default function UserManagement() {
 
 							<label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
 								<span>Birthday</span>
-								<input
-									name="birthday"
-									value={formState.birthday}
-									onChange={handleFormChange}
-									type="date"
-									className="h-12 rounded-xl border border-slate-200 bg-white px-4 text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-								/>
+								<div className="relative">
+									<input
+										ref={bdayRef}
+										name="birthday"
+										value={formState.birthday}
+										onChange={handleFormChange}
+										type="date"
+										className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+									/>
+									<button
+										type="button"
+										aria-label="open calendar"
+										onClick={() => { if (bdayRef && bdayRef.current) bdayRef.current.focus() }}
+										className="absolute right-3 top-1/2 -translate-y-1/2 z-20 rounded-full bg-white/90 p-1 text-emerald-600 shadow-sm hover:bg-emerald-50"
+									>
+										<Calendar className="h-5 w-5" />
+									</button>
+								</div>
 							</label>
 
 							<label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
@@ -1416,11 +1453,82 @@ export default function UserManagement() {
 								</button>
 							</div>
 						</form>
-					</div>
-				</div>
-			) : null}
+								</div>
+							</div>
+						) : null}
 
-			{passwordModal.open ? (
+						{viewingUser ? (
+							<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+								<div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+									<div className="flex items-start justify-between border-b border-slate-200 bg-gradient-to-r from-emerald-50 via-white to-teal-50 px-6 py-5">
+										<div>
+											<h3 className="text-xl font-semibold text-slate-900">View account</h3>
+											<p className="mt-1 text-sm text-slate-600">Detailed profile for {composeFullName(viewingUser)}.</p>
+										</div>
+										<button
+											type="button"
+											onClick={closeViewModal}
+											className="rounded-lg p-2 text-slate-400 transition hover:bg-white hover:text-slate-600"
+										>
+											<X className="h-5 w-5" />
+										</button>
+									</div>
+									<div className="space-y-6 px-6 py-6">
+										<div className="space-y-1">
+											<p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">Name</p>
+											<p className="text-base font-semibold text-slate-900">{composeFullName(viewingUser)}</p>
+										</div>
+										<div className="grid gap-4 sm:grid-cols-2">
+											<div>
+												<p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Email</p>
+												<p className="mt-1 break-words text-sm text-slate-700">{viewingUser.email || "—"}</p>
+											</div>
+											<div>
+												<p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Contact number</p>
+												<p className="mt-1 text-sm text-slate-700">{viewingUser.contactnumber || "—"}</p>
+											</div>
+											<div>
+												<p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Gender</p>
+												<p className="mt-1 text-sm capitalize text-slate-700">{viewingUser.gender || "—"}</p>
+											</div>
+											<div>
+												<p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Birthday</p>
+												<p className="mt-1 text-sm text-slate-700">{viewingUser.birthday ? formatDateOnly(viewingUser.birthday) : "—"}</p>
+											</div>
+										</div>
+										<div className="grid gap-4 sm:grid-cols-2">
+											<div>
+												<p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Created</p>
+												<p className="mt-1 text-sm text-slate-700">{formatDate(viewingUser.createdat)}</p>
+											</div>
+											<div>
+												<p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Last update</p>
+												<p className="mt-1 text-sm text-slate-700">{formatDate(viewingUser.updatedat ?? viewingUser.createdat)}</p>
+											</div>
+										</div>
+										<div className="flex flex-wrap items-center justify-between gap-3">
+											<VerifiedBadge isVerified={Boolean(viewingUser.is_verified)} />
+											{isSuperAdmin ? (
+												<span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+													{ROLE_LABELS[viewingUser.roleid] ?? "—"}
+												</span>
+											) : null}
+										</div>
+										<div className="flex justify-end">
+											<button
+												type="button"
+												onClick={closeViewModal}
+												className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-emerald-600 hover:to-teal-600"
+											>
+												Close
+											</button>
+										</div>
+									</div>
+								</div>
+							</div>
+						) : null}
+
+						{passwordModal.open ? (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
 					<div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
 						<div className="flex items-start justify-between border-b border-slate-200 bg-gradient-to-r from-indigo-50 via-emerald-50 to-white px-6 py-5">
@@ -1492,7 +1600,7 @@ export default function UserManagement() {
 										className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-emerald-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-indigo-600 hover:to-emerald-600 disabled:opacity-70"
 										disabled={passwordModal.loading}
 									>
-										{passwordModal.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+										{passwordModal.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
 										Generate password
 									</button>
 								</div>

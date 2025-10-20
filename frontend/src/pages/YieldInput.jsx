@@ -521,7 +521,7 @@ export default function YieldInput() {
                   className="rounded-3xl border border-emerald-100/70 bg-white/95 p-4 shadow-md shadow-emerald-900/5 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
+            <div className="w-full max-w-full sm:max-w-lg max-h-[95vh] sm:max-h-[85vh] overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-xl shadow-emerald-900/10 transition-colors">
                       <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-500/80">
                         {barangayName}
                       </p>
@@ -646,8 +646,8 @@ export default function YieldInput() {
 
   {showModal && (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur">
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-xl shadow-emerald-900/10 transition-colors">
-        <div className="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-4 py-3">
+  <div className="w-full max-w-lg max-h-[85vh] overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-xl shadow-emerald-900/10 transition-colors">
+        <div className="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-6 py-4">
           <h3 className="text-lg font-semibold text-slate-800">
             {editingYield
               ? t("yield.modal.editTitle", "Edit yield record")
@@ -662,7 +662,7 @@ export default function YieldInput() {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 transition-colors">
+          <form onSubmit={handleSubmit} className="space-y-6 p-6 overflow-y-auto max-h-[68vh]">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-500">
@@ -785,7 +785,7 @@ export default function YieldInput() {
               />
             </div>
 
-            <div className="space-y-2 md:col-span-2">
+            <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-500">
                 {t("yield.modal.yieldPerHa", "Yield per hectare (kg/ha)")}
               </label>

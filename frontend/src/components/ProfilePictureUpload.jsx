@@ -3,6 +3,7 @@ import axios from "axios";
 import { toast } from "react-toastify";
 import { X, UploadCloud, Loader2 } from "lucide-react";
 
+// default profile image used as fallback
 const DEFAULT_PROFILE_IMAGE = "/default-profile.webp";
 
 export default function ProfilePictureUpload({
@@ -15,10 +16,12 @@ export default function ProfilePictureUpload({
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const API_BASE_URL = useMemo(
-    () => import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:5000/api",
-    []
-  );
+  const API_BASE_URL = useMemo(() => {
+    const raw = import.meta.env.VITE_API_URL?.trim()
+    if (!raw) return "http://localhost:5000/api"
+    const normalized = raw.replace(/\/$/, "")
+    return normalized.endsWith("/api") ? normalized : `${normalized}/api`
+  }, [])
 
   useEffect(() => {
     if (!isOpen) {

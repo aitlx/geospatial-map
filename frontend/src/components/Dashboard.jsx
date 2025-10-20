@@ -17,6 +17,7 @@ import {
 } from "recharts"
 import { AlertCircle, ClipboardList, Loader2, MapPin, RefreshCw, Sprout } from "lucide-react"
 
+// status config for dashboard cards
 const STATUS_CONFIG = [
   { key: "approved", label: "Approved", color: "#059669" },
   { key: "pending", label: "Pending", color: "#f59e0b" },

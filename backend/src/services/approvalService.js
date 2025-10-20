@@ -46,6 +46,8 @@ const mapApprovalRow = (row) => {
     status: row.status,
     submitted_by: row.submitted_by,
     submitted_by_name: fullName.length ? fullName : null,
+    performed_by: row.performed_by ?? row.performer_userid ?? null,
+    performed_by_name: [row.performer_firstname, row.performer_lastname].filter(Boolean).join(' ').trim() || null,
     submitted_at: row.performed_at,
     reason: row.reason,
     metadata: {
@@ -106,6 +108,9 @@ export const fetchApprovalsService = async ({ recordType, status = "pending", se
        a.*,
        u.firstname,
        u.lastname,
+       performer.userid AS performer_userid,
+       performer.firstname AS performer_firstname,
+       performer.lastname AS performer_lastname,
        cp.crop_id,
        cp.barangay_id,
        cp.price_per_kg,
@@ -118,6 +123,7 @@ export const fetchApprovalsService = async ({ recordType, status = "pending", se
        byld.total_yield
      FROM approvals a
      LEFT JOIN users u ON u.userid = a.submitted_by
+     LEFT JOIN users performer ON performer.userid = a.performed_by
      LEFT JOIN barangay_crop_prices cp 
        ON LOWER(a.record_type::text) IN ('crop_prices', 'barangay_crop_prices')
        AND CAST(cp.price_id AS TEXT) = CAST(a.record_id AS TEXT)

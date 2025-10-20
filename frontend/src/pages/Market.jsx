@@ -697,8 +697,8 @@ export default function Market() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur">
-          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-xl shadow-emerald-900/10 transition-colors">
-            <div className="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-6 py-4">
+          <div className="w-full max-w-full sm:max-w-lg max-h-[95vh] sm:max-h-[85vh] overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-xl shadow-emerald-900/10 transition-colors">
+            <div className="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-4 py-3 sm:px-6 sm:py-4">
               <h3 className="text-lg font-semibold text-slate-800">
                 {editingPrice
                   ? t("market.modal.editTitle", "Edit price record")
@@ -712,7 +712,7 @@ export default function Market() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6 p-6">
+            <form onSubmit={handleSubmit} className="space-y-6 p-4 sm:p-6 overflow-y-auto max-h-[75vh] sm:max-h-[68vh]">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-500">
