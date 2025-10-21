@@ -77,7 +77,7 @@ export default function VerifyEmail() {
 
       navigate("/login")
     },
-    []
+    [navigate]
   )
 
   const handleSidebarNavigate = useCallback(
@@ -97,7 +97,7 @@ export default function VerifyEmail() {
 
       navigate("/login")
     },
-    []
+    [navigate]
   )
 
   const handleSuccessAction = useCallback(() => {
@@ -199,7 +199,7 @@ export default function VerifyEmail() {
         setFeedbackMessage(errMessage)
       }
     },
-    [navigate]
+    []
   )
 
   useEffect(() => {
@@ -230,9 +230,8 @@ export default function VerifyEmail() {
       setResendPending(true)
       setFeedbackMessage("")
 
-      try {
-  // Append a debug flag in development/localhost so the server will include the
-  // error stack in the response body (helps diagnose 500s from the browser).
+    try {
+  // Include debug query on localhost only
   const debugQuery = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) ? '?debug=1' : ''
   const response = await axios.post(`/api/auth/send-code${debugQuery}`, { email: normalizedEmail })
         const payload = response.data?.data || {}

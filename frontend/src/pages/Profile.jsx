@@ -285,7 +285,7 @@ export default function ProfilePage({ successMessage = "", onSuccessMessageHandl
   const accountStatus = userData?.is_verified ? "Verified" : "Pending Verification"
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-white via-emerald-50/40 to-white py-10 px-4 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-white via-emerald-50/40 to-white py-10 px-3 sm:px-5 lg:px-7 text-slate-900">
       <div className="mx-auto flex max-w-5xl flex-col gap-8">
         <ToastContainer position="top-right" autoClose={3000} theme="light" />
 

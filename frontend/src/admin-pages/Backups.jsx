@@ -205,7 +205,7 @@ export default function Backups() {
             </div>
             {/* diagnostic panel to help find why access is restricted */}
             <div className="mt-3 rounded-md bg-slate-50 p-3 text-xs text-slate-700">
-              <div className="mb-2">Debug: /user/me result</div>
+              <div className="mb-2">/user/me result</div>
               <pre className="whitespace-pre-wrap break-words text-[11px]">{JSON.stringify(debugInfo, null, 2)}</pre>
               <div className="mt-2">
                 <button className="btn btn-sm btn-ghost mr-2" onClick={async () => {

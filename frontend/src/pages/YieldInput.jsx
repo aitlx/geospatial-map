@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
+import { monthToSeason, normalizeMonthValue } from "../utils/monthToSeason";
 import { API_BASE_URL } from "../api";
 import { Plus, Search, Edit2, Trash2, X } from "lucide-react";
 import { useTranslation } from "../hooks/useTranslation";
@@ -8,8 +9,8 @@ const createEmptyFormData = () => ({
   barangay: "",
   crop: "",
   season: "",
-  year: new Date().getFullYear(),
-  month: new Date().getMonth() + 1,
+  year: "",
+  month: "",
   total_yield: "",
   area: "",
   yield_per_hectare: "",
@@ -92,6 +93,7 @@ export default function YieldInput() {
   const [selectedSeason, setSelectedSeason] = useState("All");
   const [selectedYear, setSelectedYear] = useState("All");
   const [showMineOnly, setShowMineOnly] = useState(false);
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
   const [editingYield, setEditingYield] = useState(null);
   const [formData, setFormData] = useState(createEmptyFormData);
@@ -180,13 +182,24 @@ export default function YieldInput() {
 
     const normalizedUserId = currentUserId != null ? Number(currentUserId) : null;
 
-    const filtered = yields.filter((yieldItem) => {
+  const filtered = yields.filter((yieldItem) => {
       const barangayName = (yieldItem.barangay || "").toLowerCase();
       const cropName = (yieldItem.crop || "").toLowerCase();
       const search = searchTerm.toLowerCase();
       const matchesSearch = barangayName.includes(search) || cropName.includes(search);
       const matchesSeason = selectedSeason === "All" || yieldItem.season === selectedSeason;
       const matchesYear = selectedYear === "All" || yieldItem.year?.toString() === selectedYear;
+
+      // show only pending submissions by current user
+
+        const statusValue = (yieldItem.status ?? "").toString().toLowerCase();
+        let statusMatches = false;
+        if (selectedStatusFilter === "all") statusMatches = true;
+        else if (selectedStatusFilter === "approved") statusMatches = statusValue === "approved" || statusValue === "verified";
+        else statusMatches = statusValue === selectedStatusFilter;
+
+        if (!statusMatches) return false;
+
       const matchesOwner = !showMineOnly || normalizedUserId == null
         ? true
         : Number(yieldItem.recorded_by_user_id ?? yieldItem.recordedByUserId) === normalizedUserId;
@@ -196,7 +209,7 @@ export default function YieldInput() {
 
     setFilteredYields(filtered);
     setPage(1);
-  }, [yields, searchTerm, selectedSeason, selectedYear, showMineOnly, currentUserId]);
+  }, [yields, searchTerm, selectedSeason, selectedYear, showMineOnly, selectedStatusFilter, currentUserId]);
 
   const userLocale = typeof window !== "undefined" && window.navigator ? window.navigator.language : undefined;
 
@@ -308,6 +321,27 @@ export default function YieldInput() {
       alert(t("yield.alert.selectionRequired", "Please select both a barangay and a crop before saving."));
       return;
     }
+    // Validate required fields to avoid sending invalid payloads
+    if (!formData.year) {
+      alert(t("yield.alert.yearRequired", "Please select a year."));
+      return;
+    }
+
+    if (!formData.month) {
+      alert(t("yield.alert.monthRequired", "Please select a month."));
+      return;
+    }
+
+    const monthNum = Number(formData.month);
+    if (!Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12) {
+      alert(t("yield.alert.monthInvalid", "Please select a valid month."));
+      return;
+    }
+
+    if (!formData.total_yield && formData.total_yield !== 0) {
+      alert(t("yield.alert.totalYieldRequired", "Please provide total yield."));
+      return;
+    }
 
     setIsSubmitting(true);
     const payload = {
@@ -315,13 +349,15 @@ export default function YieldInput() {
       crop_id: Number(selectedCrop.id),
       year: Number(formData.year),
       month: Number(formData.month),
-      season: formData.season,
+      season: formData.season || monthToSeason(Number(formData.month)) || "",
       total_yield: Number(formData.total_yield),
       total_area_planted_ha: Number(formData.area),
       yield_per_hectare: Number(formData.yield_per_hectare),
     };
 
     try {
+      // submit payload
+
       if (editingYield) {
         const targetId = editingYield.id ?? editingYield.yield_id;
         await axios.put(`/api/barangay-yields/${targetId}`, payload);
@@ -334,7 +370,18 @@ export default function YieldInput() {
         window.dispatchEvent(new CustomEvent("notifications:refresh", { detail: { source: editingYield ? "yield-update" : "yield-create" } }));
       }
       resetForm();
-    } catch {
+    } catch (err) {
+      // Log axios error details to help debugging server 500
+      console.error("Failed to save yield - error:", err);
+      if (err?.response) {
+        console.error("Server responded with:", {
+          status: err.response.status,
+          data: err.response.data,
+          headers: err.response.headers,
+        });
+      } else if (err?.request) {
+        console.error("No response received, request was:", err.request);
+      }
       alert(t("yield.alert.saveError", "Failed to save yield. Please try again."));
     } finally {
       setIsSubmitting(false);
@@ -343,7 +390,7 @@ export default function YieldInput() {
 
   return (
     <>
-      <div className="space-y-6">
+  <div className="space-y-6 px-3 sm:px-5 lg:px-7">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600">{t("yield.pretitle", "Yield Management")}</p>
@@ -392,20 +439,48 @@ export default function YieldInput() {
                 </option>
               ))}
             </select>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMineOnly((prev) => !prev)}
+                  className={`flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-semibold transition-all duration-200 ${
+                    showMineOnly
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-600 shadow-sm"
+                      : "border-emerald-100 bg-white text-emerald-500 hover:border-emerald-200 hover:bg-emerald-50"
+                  }`}
+                >
+                  {showMineOnly
+                    ? t("yield.filter.showMineActive", "Showing my submissions")
+                    : t("yield.filter.showMine", "Show my submissions")}
+                </button>
+              </div>
+
+              <div />
+            </div>
+          </div>
+        </div>
+
+        {/* status filter bar - placed under the filter controls (above table) */}
+        <div className="mt-3 flex items-center justify-center gap-2">
+          {[
+            { key: "all", label: t("yield.filter.status.all", "All") },
+            { key: "approved", label: t("yield.filter.status.approved", "Approved") },
+            { key: "rejected", label: t("yield.filter.status.rejected", "Rejected") },
+          ].map((opt) => (
             <button
+              key={opt.key}
               type="button"
-              onClick={() => setShowMineOnly((prev) => !prev)}
-              className={`flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-semibold transition-all duration-200 ${
-                showMineOnly
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-600 shadow-sm"
-                  : "border-emerald-100 bg-white text-emerald-500 hover:border-emerald-200 hover:bg-emerald-50"
+              onClick={() => setSelectedStatusFilter(opt.key)}
+              className={`h-9 rounded-full px-3 text-sm font-semibold transition-colors ${
+                selectedStatusFilter === opt.key
+                  ? "border border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "border border-emerald-100 bg-white text-emerald-500 hover:bg-emerald-50"
               }`}
             >
-              {showMineOnly
-                ? t("yield.filter.showMineActive", "Showing my submissions")
-                : t("yield.filter.showMine", "Show my submissions")}
+              {opt.label}
             </button>
-          </div>
+          ))}
         </div>
 
         <div className="hidden overflow-hidden rounded-3xl border border-emerald-100/70 bg-white/95 shadow-md shadow-emerald-900/5 transition-colors md:block">
@@ -502,6 +577,8 @@ export default function YieldInput() {
             </table>
           </div>
         </div>
+
+        {/* duplicate status bar removed; single status filter exists under the top filter controls */}
 
         <div className="grid gap-4 md:hidden">
           {filteredCount > 0 ? (
@@ -714,16 +791,9 @@ export default function YieldInput() {
               <label className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-500">
                 {t("yield.modal.season", "Season")}
               </label>
-              <select
-                className="h-11 w-full rounded-xl border border-emerald-100 bg-white px-3 text-sm text-slate-700 transition-colors focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                value={formData.season}
-                onChange={(e) => setFormData((prev) => ({ ...prev, season: e.target.value }))}
-                required
-              >
-                <option value="">{t("yield.modal.selectSeason", "Select season")}</option>
-                <option value="Dry">{t("yield.filter.season.dry", "Dry season")}</option>
-                <option value="Wet">{t("yield.filter.season.wet", "Wet season")}</option>
-              </select>
+              <div className="h-11 flex items-center rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 text-sm text-slate-700">
+                <span className="capitalize">{(formData.season || monthToSeason(Number(formData.month)) || "").toString().toLowerCase() || "—"}</span>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -733,7 +803,12 @@ export default function YieldInput() {
               <select
                 className="h-11 w-full rounded-xl border border-emerald-100 bg-white px-3 text-sm text-slate-700 transition-colors focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                 value={formData.month?.toString() || ""}
-                onChange={(e) => setFormData((prev) => ({ ...prev, month: Number(e.target.value) }))}
+                onChange={(e) => {
+                  const monthStr = e.target.value;
+                  const monthNum = normalizeMonthValue(monthStr);
+                  const computedSeason = monthToSeason(monthNum);
+                  setFormData((prev) => ({ ...prev, month: Number(monthStr), season: computedSeason ?? prev.season }));
+                }}
                 required
               >
                 <option value="">{t("yield.modal.selectMonth", "Select month")}</option>

@@ -21,4 +21,5 @@ const api = axios.create({
 });
 
 export default api
-export { API_BASE_URL, ASSET_BASE_URL }
+// Backwards-compatible alias: some files import `API_URL` — keep that working.
+export { API_BASE_URL, ASSET_BASE_URL, API_BASE_URL as API_URL }

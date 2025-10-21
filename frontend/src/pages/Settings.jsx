@@ -120,7 +120,7 @@ export default function Settings({ onAdminNavigate, adminNotice, onNoticeConsume
   }
 
   return (
-    <section className="relative min-h-screen overflow-visible rounded-3xl border border-emerald-100/70 bg-white/90 p-6 pb-12 text-slate-900 shadow-sm shadow-emerald-900/5">
+    <section className="relative min-h-screen overflow-visible rounded-3xl border border-emerald-100/70 bg-white/90 px-4 py-6 pb-12 text-slate-900 shadow-sm shadow-emerald-900/5">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-24 left-12 h-44 w-44 rounded-full bg-emerald-200/40 blur-3xl" />
         <div className="absolute -bottom-32 -right-24 h-[22rem] w-[22rem] rounded-full bg-teal-200/30 blur-[120px]" />

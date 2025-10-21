@@ -302,7 +302,7 @@ export default function DashboardContent({ onNavigateToMap }) {
   ]
 
   return (
-    <div className="min-h-screen space-y-6 bg-gradient-to-br from-emerald-50 via-teal-50/60 to-white px-4 py-6 text-slate-800 sm:px-6">
+    <div className="min-h-screen space-y-6 bg-gradient-to-br from-emerald-50 via-teal-50/60 to-white px-3 py-6 text-slate-800 sm:px-5 lg:px-7">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-600">Technician workspace</p>

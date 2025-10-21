@@ -11,10 +11,19 @@ const {
   deleteBarangayCropPriceService 
 } = barangayCropPriceService;
 
+// helper to normalize season input into a canonical label for UI/logs and a DB-safe value
+const normalizeSeasonInput = (season) => {
+  if (typeof season !== 'string') return { canonical: null, dbValue: null };
+  const s = season.trim().toLowerCase();
+  if (s === 'wet') return { canonical: 'Wet', dbValue: 'wet' };
+  if (s === 'dry') return { canonical: 'Dry', dbValue: 'dry' };
+  return { canonical: null, dbValue: null };
+};
+
 // adding barangay crop price records
 export const addCropPrice = async (req, res, next) => {
   const { barangay_id, crop_id, price_per_kg, year, month, season } = req.body;
-  const recorded_by_user_id = req.user.id;
+  const recorded_by_user_id = req.user?.id ?? null;
 
   if (!barangay_id || !crop_id || !price_per_kg || !season || !month) {
     return handleResponse(res, 400, "missing required fields");
@@ -27,13 +36,17 @@ export const addCropPrice = async (req, res, next) => {
 
   try {
     const finalYear = year || new Date().getFullYear();
+    // normalize season to canonical label + DB token
+    const { canonical, dbValue } = normalizeSeasonInput(season);
+    if (!dbValue) return handleResponse(res, 400, "season must be either 'Wet' or 'Dry'");
+
     const newPrice = await addBarangayCropPriceService(
       barangay_id,
       crop_id,
       price_per_kg,
       finalYear,
       normalizedMonth,
-      season,
+      dbValue,
       recorded_by_user_id
     );
 
@@ -46,7 +59,7 @@ export const addCropPrice = async (req, res, next) => {
       targetId: newPrice.price_id,
       details: {
         summary: "Crop price recorded",
-        period: { year: finalYear, month: normalizedMonth, season },
+        period: { year: finalYear, month: normalizedMonth, season: canonical },
         priceProvided: price_per_kg !== undefined && price_per_kg !== null,
         barangayReference: Boolean(barangay_id),
         cropReference: Boolean(crop_id),
@@ -56,6 +69,10 @@ export const addCropPrice = async (req, res, next) => {
     return handleResponse(res, 201, "crop price record added successfully (status: pending)", newPrice);
   } catch (err) {
     console.error("add crop price error:", err);
+    // In development return the real error message to help debugging
+    if (process.env.NODE_ENV !== 'production') {
+      return handleResponse(res, 500, err?.message || "internal server error");
+    }
     return handleResponse(res, 500, "internal server error");
   }
 };
@@ -118,12 +135,20 @@ export const updateCropPrice = async (req, res, next) => {
     }
 
     // send all fields to the service function
+    // normalize season if provided
+    let seasonForDb = season;
+    if (season !== undefined) {
+      const { canonical, dbValue } = normalizeSeasonInput(season);
+      if (!dbValue) return handleResponse(res, 400, "season must be either 'Wet' or 'Dry'");
+      seasonForDb = dbValue;
+    }
+
     const updatedPrice = await updateBarangayCropPriceService(
       id, 
       price_per_kg, 
       year, 
       normalizedMonth,
-      season,
+      seasonForDb,
       barangay_id,  
       crop_id      
     );
@@ -148,6 +173,9 @@ export const updateCropPrice = async (req, res, next) => {
     return handleResponse(res, 200, "crop price record updated successfully", updatedPrice);
   } catch (err) {
     console.error("update crop price error:", err);
+    if (process.env.NODE_ENV !== 'production') {
+      return handleResponse(res, 500, err?.message || "internal server error");
+    }
     return handleResponse(res, 500, "internal server error");
   }
 };

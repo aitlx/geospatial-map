@@ -4,6 +4,7 @@ import { Plus, Search, Edit2, Trash2, X } from "lucide-react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useTranslation } from "../hooks/useTranslation.js";
+import { monthToSeason, normalizeMonthValue } from "../utils/monthToSeason";
 
 const STATUS_META = {
   pending: {
@@ -65,8 +66,8 @@ const formatMonthLabel = (value, locale = undefined) => {
 
 const createEmptyForm = () => ({
   season: "",
-  year: String(new Date().getFullYear()),
-  month: String(new Date().getMonth() + 1),
+  year: "",
+  month: "",
   price_per_kg: "",
 });
 
@@ -83,6 +84,7 @@ export default function Market() {
     year: "All",
   });
   const [showMineOnly, setShowMineOnly] = useState(false);
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -196,7 +198,7 @@ export default function Market() {
     const search = filters.searchTerm.trim().toLowerCase();
     const targetSeason = filters.season.toLowerCase();
 
-    return prices.filter((price) => {
+  return prices.filter((price) => {
       const barangayName = price.barangay?.name?.toLowerCase() ?? "";
       const cropName = price.crop?.name?.toLowerCase() ?? "";
       const matchesSearch =
@@ -204,14 +206,17 @@ export default function Market() {
       const matchesSeason =
         filters.season === "All" || (price.season ?? "").toLowerCase() === targetSeason;
       const matchesYear = filters.year === "All" || String(price.year) === filters.year;
+  const statusValue = (price.status ?? price.approval_status ?? "").toString().toLowerCase();
+  let statusMatches = false;
+  if (selectedStatusFilter === "all") statusMatches = true;
+  else if (selectedStatusFilter === "approved") statusMatches = statusValue === "approved" || statusValue === "verified";
+  else statusMatches = statusValue === selectedStatusFilter;
 
-      if (!showMineOnly) {
-        return matchesSearch && matchesSeason && matchesYear;
-      }
+  if (!statusMatches) return false;
 
-      if (currentUserId == null) {
-        return matchesSearch && matchesSeason && matchesYear;
-      }
+      if (!showMineOnly) return matchesSearch && matchesSeason && matchesYear;
+
+      if (currentUserId == null) return matchesSearch && matchesSeason && matchesYear;
 
       const ownerId =
         price.recorded_by_user_id ??
@@ -221,10 +226,9 @@ export default function Market() {
         price.created_by_user_id;
 
       const matchesOwner = Number(ownerId) === Number(currentUserId);
-
       return matchesSearch && matchesSeason && matchesYear && matchesOwner;
     });
-  }, [prices, filters, showMineOnly, currentUserId]);
+  }, [prices, filters, showMineOnly, currentUserId, selectedStatusFilter]);
 
   useEffect(() => {
     setPage(1);
@@ -333,11 +337,7 @@ export default function Market() {
       return;
     }
 
-    if (!formData.season) {
-      toast.error("Please select a season");
-      return;
-    }
-
+    // season is computed from month; ensure we derive it for payload if missing
     if (!formData.month) {
       toast.error("Please select a month");
       return;
@@ -348,23 +348,43 @@ export default function Market() {
       return;
     }
 
+    // validate numeric price
+    const parsedPrice = Number(formData.price_per_kg);
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      toast.error("Please provide a valid price greater than 0");
+      return;
+    }
+
+    // determine season (prefer explicit formData, otherwise compute from month)
+    const derivedSeason = monthToSeason(Number(formData.month));
+    let seasonValue = (formData.season && String(formData.season).trim()) || derivedSeason || "";
+    // canonicalize to 'Wet' or 'Dry' to match backend enum
+    const seasonLower = String(seasonValue).toLowerCase();
+    if (seasonLower.includes("wet") || seasonLower === "w") seasonValue = "Wet";
+    else if (seasonLower.includes("dry") || seasonLower === "d") seasonValue = "Dry";
+    else seasonValue = "";
+
     const payload = {
       barangay_id: selectedBarangay.id,
       crop_id: selectedCrop.id,
-      price_per_kg: Number(formData.price_per_kg),
-      year: Number(formData.year),
+      price_per_kg: parsedPrice,
+      year: Number(formData.year) || new Date().getFullYear(),
       month: Number(formData.month),
-      season: formData.season,
+      season: seasonValue,
     };
 
-    try {
+  // submit payload
+
+  try {
       setSubmitting(true);
 
       if (editingPrice?.id) {
-        await axios.put(`/api/barangay-crop-prices/${editingPrice.id}`, payload);
+        const resp = await axios.put(`/api/barangay-crop-prices/${editingPrice.id}`, payload);
+        console.debug('[market] update response:', resp?.data || resp);
         toast.success("Price updated successfully!");
       } else {
-        await axios.post("/api/barangay-crop-prices", payload);
+        const resp = await axios.post("/api/barangay-crop-prices", payload);
+        console.debug('[market] create response:', resp?.data || resp);
         toast.success("Price added successfully!");
       }
 
@@ -399,7 +419,7 @@ export default function Market() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-teal-50/60 to-white text-slate-900 transition-colors">
       <ToastContainer position="top-right" autoClose={3000} />
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
+  <div className="mx-auto max-w-6xl space-y-6 px-3 py-6 sm:px-5 lg:px-7">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-600">
@@ -455,21 +475,45 @@ export default function Market() {
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={() => setShowMineOnly((prev) => !prev)}
-              className={`flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-semibold transition-all duration-200 ${
-                showMineOnly
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-600 shadow-sm"
-                  : "border-emerald-100 bg-white text-emerald-500 hover:border-emerald-200 hover:bg-emerald-50"
-              }`}
-            >
-              {showMineOnly
-                ? t("market.filter.mineActive", "Showing my submissions")
-                : t("market.filter.mine", "Show my submissions")}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowMineOnly((prev) => !prev)}
+                className={`flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-semibold transition-all duration-200 ${
+                  showMineOnly
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-600 shadow-sm"
+                    : "border-emerald-100 bg-white text-emerald-500 hover:border-emerald-200 hover:bg-emerald-50"
+                }`}
+              >
+                {showMineOnly
+                  ? t("market.filter.mineActive", "Showing my submissions")
+                  : t("market.filter.mine", "Show my submissions")}
+              </button>
+            </div>
           </div>
         </div>
+        {/* status filter bar - placed under the filter controls (above table) */}
+        <div className="mt-3 flex items-center justify-center gap-2">
+          {[
+            { key: "all", label: t("market.filter.status.all", "All") },
+            { key: "approved", label: t("market.filter.status.approved", "Approved") },
+            { key: "rejected", label: t("market.filter.status.rejected", "Rejected") },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setSelectedStatusFilter(opt.key)}
+              className={`h-9 rounded-full px-3 text-sm font-semibold transition-colors ${
+                selectedStatusFilter === opt.key
+                  ? "border border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "border border-emerald-100 bg-white text-emerald-500 hover:bg-emerald-50"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
   <div className="hidden overflow-hidden rounded-3xl border border-emerald-100/70 bg-white/95 shadow-md shadow-emerald-900/5 transition-colors md:block">
           <div className="overflow-x-auto">
             <table className="min-w-full table-fixed divide-y divide-emerald-100 text-sm">
@@ -762,16 +806,9 @@ export default function Market() {
                   <label className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-500">
                     {t("market.modal.season", "Season")}
                   </label>
-                  <select
-                    className="h-11 w-full rounded-xl border border-emerald-100 bg-white px-3 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                    value={formData.season}
-                    onChange={(e) => setFormData({ ...formData, season: e.target.value })}
-                    required
-                  >
-                    <option value="">{t("market.modal.selectSeason", "Select season")}</option>
-                    <option value="dry">{t("market.filter.season.dry", "Dry season")}</option>
-                    <option value="wet">{t("market.filter.season.wet", "Wet season")}</option>
-                  </select>
+                  <div className="h-11 flex items-center rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 text-sm text-slate-700">
+                    <span className="capitalize">{(formData.season || monthToSeason(Number(formData.month)) || "").toString().toLowerCase() || "—"}</span>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -781,7 +818,12 @@ export default function Market() {
                   <select
                     className="h-11 w-full rounded-xl border border-emerald-100 bg-white px-3 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                     value={formData.month ?? ""}
-                    onChange={(e) => setFormData({ ...formData, month: e.target.value })}
+                    onChange={(e) => {
+                      const monthStr = e.target.value;
+                      const monthNum = normalizeMonthValue(monthStr);
+                      const computedSeason = monthToSeason(monthNum);
+                      setFormData((prev) => ({ ...prev, month: monthStr, season: computedSeason ?? prev.season }));
+                    }}
                     required
                   >
                     <option value="">{t("market.modal.selectMonth", "Select month")}</option>

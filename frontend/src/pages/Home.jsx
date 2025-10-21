@@ -286,12 +286,14 @@ export default function Home({ defaultView = "dashboard" }) {
   <div className="relative z-10 flex min-h-screen flex-1 flex-col bg-transparent">
         <Header setActiveItem={handleSetActiveItem} activeItem={activeItem} />
 
-        <div className={`flex-1 overflow-y-auto pb-16 pt-6 ${activeItem === "geospatial-map" ? "" : "px-4 sm:px-6 lg:px-8"}`}>
+  <div className={`flex-1 overflow-y-auto pb-16 pt-6 ${activeItem === "geospatial-map" ? "" : "px-3 sm:px-5 lg:px-6"}`}>
           <div
             className={
               activeItem === "geospatial-map"
                 ? ""
-                : "mx-auto flex w-full max-w-7xl flex-col gap-6"
+                : (showSidebar
+                    ? "flex w-full max-w-7xl flex-col gap-6"
+                    : "mx-auto flex w-full max-w-7xl flex-col gap-6")
             }
           >
             {activeItem === "dashboard" && <DashboardContent onNavigateToMap={handleNavigateToMap} />}

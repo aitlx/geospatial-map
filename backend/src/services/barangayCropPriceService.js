@@ -94,18 +94,41 @@ const addBarangayCropPriceService = async (
   season,
   recorded_by_user_id
 ) => {
-  const result = await pool.query(
-    `INSERT INTO barangay_crop_prices 
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const insertQuery = `INSERT INTO barangay_crop_prices 
       (barangay_id, crop_id , price_per_kg, year, month, season, recorded_by_user_id, status, date_recorded) 
      VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW()) 
-     RETURNING *`,
-    [barangay_id, crop_id, price_per_kg, year, month, season, recorded_by_user_id]
-  );
-  const newPrice = result.rows[0];
+     RETURNING *`;
 
-  await insertPendingApproval("crop_prices", newPrice.price_id, recorded_by_user_id ?? null);
+    const result = await client.query(insertQuery, [
+      barangay_id,
+      crop_id,
+      price_per_kg,
+      year,
+      month,
+      season,
+      recorded_by_user_id,
+    ]);
 
-  return newPrice;
+    const newPrice = result.rows[0];
+
+    // Insert a pending approval record in the same transaction.
+    const approvalQuery = `INSERT INTO approvals (record_type, record_id, status, submitted_by, reason, performed_at)
+      VALUES ($1, $2, 'pending', $3, 'Awaiting review', NOW()) RETURNING *`;
+
+    await client.query(approvalQuery, ["crop_prices", newPrice.price_id, recorded_by_user_id ?? null]);
+
+    await client.query("COMMIT");
+    return newPrice;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // update barangay crop price
