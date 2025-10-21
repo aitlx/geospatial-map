@@ -1,58 +1,24 @@
-<<<<<<< HEAD
 import axios from "axios";
 
-// compute base from vite env; fallback to '/api' for proxied dev
-const API_BASE_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:5000/api";
+// api. set VITE_API_URL / VITE_ASSET_URL at build time.
+const env = String(import.meta.env.VITE_API_URL || '').trim();
+const assetEnv = String(import.meta.env.VITE_ASSET_URL || '/assets').trim();
 
-// debug to confirm vite injected the env at startup
-console.log("[api] VITE_API_URL:", API_BASE_URL);
+const stripSlash = (s) => s.replace(/\/+$/, '');
+
+let API_BASE_URL = '/api';
+if (env) {
+    const cleaned = env.startsWith('http') ? stripSlash(env) : '/' + stripSlash(env);
+    API_BASE_URL = cleaned.endsWith('/api') ? cleaned : cleaned + '/api';
+}
+
+const ASSET_BASE_URL = stripSlash(assetEnv) || '/assets';
 
 const api = axios.create({
-	baseURL: API_BASE_URL || "/api",
-	withCredentials: true,
-	timeout: 15000,
+    baseURL: API_BASE_URL,
+    withCredentials: true, // send cookies
+    timeout: 15000,
 });
 
-export default api;
-export { API_BASE_URL };
-=======
-// ...existing code...
-const raw = import.meta.env.VITE_API_URL || '/api';
-
-const normalizeApiUrl = (value) => {
-    const v = String(value || '').trim();
-    if (!v) return '/api';
-
-    // If it already ends with /api or /api/, normalize and return
-    if (v.match(/\/api\/?$/)) {
-        return v.replace(/\/+$/, '');
-    }
-
-    // If it looks like an absolute URL (http(s)://...), append /api
-    if (v.startsWith('http://') || v.startsWith('https://')) {
-        return v.replace(/\/+$/, '') + '/api';
-    }
-
-    // Otherwise treat as relative path, ensure it starts with '/'
-    const rel = v.startsWith('/') ? v.replace(/\/+$/, '') : '/' + v.replace(/\/+$/, '');
-    return rel;
-};
-
-export const API_URL = normalizeApiUrl(raw);
-
-// ...existing code...
-
-// added asset base url export
-const rawAsset = import.meta.env.VITE_ASSET_URL || '/assets';
-const normalizeAssetUrl = (value) => {
-    const v = String(value || '').trim();
-    if (!v) return '/assets';
-    return v.replace(/\/+$/, '');
-};
-export const ASSET_BASE_URL = normalizeAssetUrl(rawAsset);
-
-export default {
-    API_URL,
-    ASSET_BASE_URL,
-};
->>>>>>> restore-fri-sat
+export default api
+export { API_BASE_URL, ASSET_BASE_URL }

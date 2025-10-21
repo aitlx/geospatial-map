@@ -45,7 +45,6 @@ const allowedOrigins = [
 
 app.use(
   cors({
-<<<<<<< HEAD
     origin: (origin, callback) => {
       // allow requests with no origin (e.g., curl, mobile clients)
       if (!origin) return callback(null, true);
@@ -56,9 +55,6 @@ app.use(
       }
       return callback(new Error("CORS policy: origin not allowed"), false);
     },
-=======
-    origin: "http://localhost:5173",
->>>>>>> restore-fri-sat
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   })

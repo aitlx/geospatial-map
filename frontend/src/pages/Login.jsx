@@ -1,12 +1,6 @@
-<<<<<<< HEAD
 import React, { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import api from "../api";
-=======
-import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import axios from "axios";
->>>>>>> restore-fri-sat
+import api from "../api";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import {
@@ -34,11 +28,7 @@ export default function Login() {
 	const navigate = useNavigate();
 	const location = useLocation();
 
-<<<<<<< HEAD
 		// api instance provides baseURL and withCredentials
-=======
-	const API_BASE_URL = useMemo(() => API_URL, []);
->>>>>>> restore-fri-sat
 
 	const extractRoleId = useCallback((candidate) => {
 		if (!candidate || typeof candidate !== "object") return null;
@@ -125,11 +115,7 @@ export default function Login() {
 		return () => {
 			isMounted = false;
 		};
-<<<<<<< HEAD
-		}, [extractRoleId, navigate, resolveDestination]);
-=======
-	}, [API_BASE_URL, extractRoleId, navigate, resolveDestination, location]);
->>>>>>> restore-fri-sat
+		}, [extractRoleId, navigate, resolveDestination, location]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
