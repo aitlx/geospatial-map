@@ -2,3 +2,4 @@
 /backups
 /uploads/backups
 /db/migrations/*.sql
+.env
