@@ -23,19 +23,19 @@ const generateResetCode = (length = 6) => {
 export const registerUser = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return handleResponse(res, 400, "validation failed", errors.array());
+    return handleResponse(res, 400, "Validation failed", errors.array());
   }
 
   const { firstName, lastName, birthday, gender, email, contactNumber, password, roleID } = req.body;
 
   try {
     if (![1, 2, 3].includes(roleID)) {
-      return handleResponse(res, 400, "invalid role id");
+      return handleResponse(res, 400, "Invalid role id");
     }
 
     const existingUser = await userService.fetchUserByEmailService(email);
     if (existingUser) {
-      return handleResponse(res, 409, "email is already taken");
+      return handleResponse(res, 409, "Email is already taken");
     }
 
     const hashedPassword = await hashPassword(password);
@@ -52,11 +52,11 @@ export const registerUser = async (req, res) => {
     );
 
     if (!newUser) {
-      return handleResponse(res, 500, "failed to create user");
+      return handleResponse(res, 500, "Failed to create user");
     }
 
     await sendVerificationCode(newUser).catch(err =>
-      console.error("verification code send failed:", err.message)
+      console.error("Verification code send failed:", err.message)
     );
 
     // log registration
@@ -73,7 +73,7 @@ export const registerUser = async (req, res) => {
       },
     });
 
-    return handleResponse(res, 201, "user account created successfully! please verify your email.", {
+    return handleResponse(res, 201, "User account created successfully! please verify your email.", {
       id: newUser.userid,
       firstName: newUser.firstname,
       lastName: newUser.lastname,
@@ -81,8 +81,7 @@ export const registerUser = async (req, res) => {
       roleID: newUser.roleid,
     });
   } catch (err) {
-    console.error("error during registration:", err);
-    return handleResponse(res, 500, "internal server error");
+    return handleResponse(res, 500, "Internal server error");
   }
 };
 
@@ -90,7 +89,7 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return handleResponse(res, 400, "validation failed", errors.array());
+    return handleResponse(res, 400, "Validation failed", errors.array());
   }
 
   const { email, password } = req.body;
@@ -99,12 +98,19 @@ export const loginUser = async (req, res) => {
     const user = await userService.fetchUserByEmailService(email);
 
     if (!user || !(await comparePassword(password, user.password))) {
-      return handleResponse(res, 401, "invalid email or password");
+      return handleResponse(res, 401, "Invalid email or password");
+    }
+
+    // prevent admin/superadmin accounts from authenticating via the technician portal.
+    const candidateRole = user.roleid || user.roleID;
+    if ([ROLES.ADMIN, ROLES.SUPERADMIN].includes(candidateRole)) {
+      console.warn(`technician portal login attempt using admin account email=${email} role=${candidateRole}`);
+      return handleResponse(res, 404, "Account not found");
     }
 
     if (!process.env.JWT_SECRET) {
       console.error('JWT_SECRET is not set in environment');
-      return handleResponse(res, 500, 'server misconfiguration');
+      return handleResponse(res, 500, 'Server misconfiguration');
     }
 
     const token = jwt.sign(
@@ -118,13 +124,16 @@ export const loginUser = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("token", token, {
+  // Cookie options - allow cross-site cookies in production (HTTPS)
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    };
+
+    res.cookie("token", token, cookieOptions);
 
     // log login
     await logService.add({
@@ -151,14 +160,14 @@ export const loginUser = async (req, res) => {
     });
   } catch (err) {
     console.error("login error:", err);
-    return handleResponse(res, 500, "internal server error");
+    return handleResponse(res, 500, "Internal server error");
   }
 };
 
 export const loginAdmin = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return handleResponse(res, 400, "validation failed", errors.array());
+    return handleResponse(res, 400, "Validation failed", errors.array());
   }
 
   const { email, password } = req.body;
@@ -167,17 +176,18 @@ export const loginAdmin = async (req, res) => {
     const user = await userService.fetchUserByEmailService(email);
 
     if (!user || !(await comparePassword(password, user.password))) {
-      return handleResponse(res, 401, "invalid email or password");
+      return handleResponse(res, 401, "Invalid email or password");
     }
 
     const roleId = user.roleid || user.roleID;
+    
     if (![ROLES.ADMIN, ROLES.SUPERADMIN].includes(roleId)) {
-      return handleResponse(res, 403, "account does not have administrative access");
+      return handleResponse(res, 404, "Account not found");
     }
 
     if (!process.env.JWT_SECRET) {
       console.error('JWT_SECRET is not set in environment');
-      return handleResponse(res, 500, 'server misconfiguration');
+      return handleResponse(res, 500, 'Server misconfiguration');
     }
 
     const token = jwt.sign(
@@ -191,13 +201,15 @@ export const loginAdmin = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("token", token, {
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    };
+
+    res.cookie("token", token, cookieOptions);
 
     await logService.add({
       userId: user.userid,
@@ -211,7 +223,7 @@ export const loginAdmin = async (req, res) => {
       },
     });
 
-    return handleResponse(res, 200, "admin login successful", {
+    return handleResponse(res, 200, "Admin login successful", {
       token,
       user: {
         id: user.userid || user.id,
@@ -222,8 +234,7 @@ export const loginAdmin = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("admin login error:", err);
-    return handleResponse(res, 500, "internal server error");
+    return handleResponse(res, 500, "Internal server error");
   }
 };
 
@@ -234,7 +245,7 @@ export const logoutUser = async (req, res) => {
     res.clearCookie("token", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: "/"
     });
 
@@ -269,10 +280,10 @@ export const logoutUser = async (req, res) => {
       });
     }
 
-    return handleResponse(res, 200, "logout successful");
+    return handleResponse(res, 200, "Logout successful");
   } catch (err) {
     console.error("logout error:", err);
-    return handleResponse(res, 500, "internal server error");
+    return handleResponse(res, 500, "Internal server error");
   }
 };
 
@@ -281,54 +292,7 @@ export const logoutUser = async (req, res) => {
 
 // request password reset
 export const forgotPassword = async (req, res) => {
-  const { email } = req.body;
-
-  try {
-    const user = await userService.fetchUserByEmailService(email);
-    if (!user) {
-      return handleResponse(res, 404, "no account found with this email");
-    }
-
-  const code = generateResetCode();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    await pool.query(
-      `insert into password_reset_codes (user_id, code, expires_at)
-       values ($1, $2, $3)`,
-      [user.userid, code, expiresAt]
-    );
-
-    const html = `
-      <p>hello <b>${user.firstname}</b>,</p>
-      <p>you requested a password reset.</p>
-      <p>your verification code is: <b>${code}</b></p>
-      <p>this code will expire in 10 minutes.</p>
-    `;
-
-    await sendEmail({
-      to: user.email,
-      subject: "password reset code",
-      html,
-    });
-
-    // log forgot password
-    await logService.add({
-      userId: user.userid,
-      roleId: user.roleid,
-      action: "FORGOT_PASSWORD",
-      targetTable: "users",
-      targetId: user.userid,
-      details: {
-        summary: "Password reset requested",
-        emailMasked: maskEmail(user.email),
-      },
-    });
-
-    return handleResponse(res, 200, "password reset code sent to your email");
-  } catch (err) {
-    console.error("forgot password error:", err.message);
-    return handleResponse(res, 500, "internal server error");
-  }
+  return handleResponse(res, 200, 'If an account exists for this email, a reset link has been sent.');
 };
 
 // verify reset code
@@ -338,7 +302,7 @@ export const verifyResetCode = async (req, res) => {
   try {
     const user = await userService.fetchUserByEmailService(email);
     if (!user) {
-      return handleResponse(res, 404, "user not found");
+      return handleResponse(res, 404, "User not found");
     }
 
     const result = await pool.query(
@@ -349,13 +313,13 @@ export const verifyResetCode = async (req, res) => {
     );
 
     if (!result.rows.length) {
-      return handleResponse(res, 400, "invalid or expired code");
+      return handleResponse(res, 400, "Invalid or expired code");
     }
 
     const record = result.rows[0];
 
     if (new Date(record.expires_at) < new Date()) {
-      return handleResponse(res, 400, "code expired");
+      return handleResponse(res, 400, "Code expired");
     }
 
     // log verification
@@ -370,10 +334,10 @@ export const verifyResetCode = async (req, res) => {
       },
     });
 
-    return handleResponse(res, 200, "code verified successfully");
+    return handleResponse(res, 200, "Code verified successfully");
   } catch (err) {
     console.error("verify reset code error:", err);
-    return handleResponse(res, 500, "internal server error");
+    return handleResponse(res, 500, "Internal server error");
   }
 };
 
@@ -388,7 +352,7 @@ export const resetPassword = async (req, res) => {
     );
 
     if (!userResult.rows.length) {
-      return handleResponse(res, 404, "user not found");
+      return handleResponse(res, 404, "User not found");
     }
 
     const userId = userResult.rows[0].userid;
@@ -401,13 +365,13 @@ export const resetPassword = async (req, res) => {
     );
 
     if (!codeResult.rows.length) {
-      return handleResponse(res, 400, "invalid or expired code");
+      return handleResponse(res, 400, "Invalid or expired code");
     }
 
     const record = codeResult.rows[0];
 
     if (new Date(record.expires_at) < new Date()) {
-      return handleResponse(res, 400, "code has expired");
+      return handleResponse(res, 400, "Code has expired");
     }
 
     const hashedPassword = await hashPassword(newPassword);
@@ -432,9 +396,8 @@ export const resetPassword = async (req, res) => {
       details: { summary: "Password reset completed" },
     });
 
-    return handleResponse(res, 200, "password has been reset successfully");
+    return handleResponse(res, 200, "Password has been reset successfully");
   } catch (err) {
-    console.error("reset password error:", err);
-    return handleResponse(res, 500, "internal server error");
+    return handleResponse(res, 500, "Internal server error");
   }
 };

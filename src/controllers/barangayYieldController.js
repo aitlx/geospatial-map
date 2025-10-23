@@ -44,13 +44,27 @@ export const addBarangayYield = async (req, res, next) => {
     return handleResponse(res, 400, false, "Month must be an integer between 1 and 12");
   }
 
+  // Normalize and validate season (accept common casings). Keep canonical label for UI/logs
+  const normalizedSeason = typeof season === 'string' ? season.trim() : null;
+  let canonicalSeason = null;
+  let dbSeason = null;
+  if (normalizedSeason) {
+    const lower = normalizedSeason.toLowerCase();
+    if (lower === 'wet') { canonicalSeason = 'Wet'; dbSeason = 'wet'; }
+    else if (lower === 'dry') { canonicalSeason = 'Dry'; dbSeason = 'dry'; }
+  }
+  if (!canonicalSeason) {
+    return handleResponse(res, 400, false, "season must be either 'Wet' or 'Dry'");
+  }
+
   try {
+
     const newYieldRecord = await addBarangayYieldService(
       barangay_id,
       crop_id,
       year,
       normalizedMonth,
-      season,
+      dbSeason,
       total_yield,
       total_area_planted_ha,
       yield_per_hectare,
@@ -71,7 +85,7 @@ export const addBarangayYield = async (req, res, next) => {
       targetId: newYieldRecord.yield_id,
       details: {
         summary: "Yield record created",
-        period: { year, month: normalizedMonth, season },
+        period: { year, month: normalizedMonth, season: canonicalSeason },
         metricsProvided,
       },
     });
@@ -83,6 +97,8 @@ export const addBarangayYield = async (req, res, next) => {
       newYieldRecord
     );
   } catch (err) {
+    // Log a concise error message; avoid printing DB internals to logs
+    console.error('addBarangayYield error:', err?.message || err);
     next(err);
   }
 };
@@ -133,7 +149,7 @@ export const fetchBarangayYieldById = async (req, res, next) => {
   }
 };
 
-// Update barangay yield record
+// update barangay yield record
 export const updateBarangayYield = async (req, res, next) => {
   const {
     barangay_id,
@@ -169,13 +185,25 @@ export const updateBarangayYield = async (req, res, next) => {
       normalizedMonth = parsed;
     }
 
+    // normalize season for update if provided
+    let canonicalSeasonUpdate = season;
+    if (season !== undefined) {
+      const sNorm = typeof season === 'string' ? season.trim().toLowerCase() : null;
+      if (sNorm === 'wet') canonicalSeasonUpdate = 'Wet';
+      else if (sNorm === 'dry') canonicalSeasonUpdate = 'Dry';
+      else canonicalSeasonUpdate = null;
+      if (season !== undefined && canonicalSeasonUpdate == null) {
+        return handleResponse(res, 400, false, "season must be either 'Wet' or 'Dry'");
+      }
+    }
+
     const updatedYield = await updateBarangayYieldService(
       req.params.id,
       barangay_id,
       crop_id,
       year,
       normalizedMonth,
-      season,
+      canonicalSeasonUpdate,
       total_yield,
       total_area_planted_ha,
       yield_per_hectare

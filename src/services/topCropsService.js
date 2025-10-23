@@ -38,11 +38,29 @@ export const topCropsService = {
   async getTopCrops({ barangayId, year, season, month, months, limit = 5 }) {
     const conditions = ["LOWER(COALESCE(by.status::text, '')) = 'approved'"]
     const values = []
+    // Accept optional crop filters (cropId or crop name)
+    let cropIdFilter = null
+    let cropNameFilter = null
+    if (arguments[0] && (arguments[0].cropId || arguments[0].crop)) {
+      cropIdFilter = arguments[0].cropId ?? null
+      cropNameFilter = arguments[0].crop ?? null
+    }
 
     const parsedBarangayId = sanitizeInteger(barangayId)
     if (parsedBarangayId !== null) {
       values.push(parsedBarangayId)
       conditions.push(`by.barangay_id = $${values.length}`)
+    }
+
+    // crop id filter
+    const parsedCropId = sanitizeInteger(cropIdFilter)
+    if (parsedCropId !== null) {
+      values.push(parsedCropId)
+      conditions.push(`by.crop_id = $${values.length}`)
+    } else if (cropNameFilter && typeof cropNameFilter === 'string') {
+      // filter by crop name (case-insensitive match)
+      values.push(cropNameFilter.trim().toLowerCase())
+      conditions.push(`LOWER(c.crop_name) = LOWER($${values.length})`)
     }
 
     const parsedYear = sanitizeInteger(year)

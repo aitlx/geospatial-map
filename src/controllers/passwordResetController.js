@@ -18,19 +18,13 @@ export const forgotPasswordLink = async (req, res) => {
   try {
     const user = await userService.fetchUserByEmailService(email);
     
-    try {
-      const dbgRole = user ? (user.roleid ?? user.roleID ?? user.role ?? user.role_id) : null;
-      console.log(`[PWRESET] request email=${email} portal=${portal} userExists=${!!user} userRole=${dbgRole}`);
-    } catch (dbgErr) {
-      console.warn('[PWRESET] debug log failed', dbgErr?.message || dbgErr);
-    }
+  // remove verbose debug logs (avoid leaking emails/roles)
 
     const genericMessage = 'If an account exists for this email, a reset link has been sent.';
 
     if (!user) {
-      console.warn(`Password reset requested for unknown email: ${email}`);
-      // return 404 so the frontend can inform the caller that the account was not found
-      return handleResponse(res, 404, 'no account found with this email');
+  // keep response generic when email not found
+  return handleResponse(res, 404, 'no account found with this email');
     }
 
     const rawRole = user.roleid ?? user.roleID ?? user.role ?? user.role_id;
@@ -38,20 +32,19 @@ export const forgotPasswordLink = async (req, res) => {
     
     if (portal === 'admin') {
       if (![1, 2].includes(roleid)) {
-        console.warn(`Password reset requested on admin portal for non-admin email: ${email}, role=${rawRole}`);
-        console.log(`[PWRESET] decision=reject-admin-mismatch email=${email} role=${rawRole}`);
+  // reject admin reset attempts that don't match role
+  return handleResponse(res, 404, 'no account found with this email');
         return handleResponse(res, 404, 'no account found with this email');
       }
     } else if (portal === 'technician') {
       if (roleid !== 3) {
-        console.warn(`Password reset requested on technician portal for non-technician email: ${email}, role=${rawRole}`);
-        console.log(`[PWRESET] decision=reject-tech-mismatch email=${email} role=${rawRole}`);
+  // Reject technician reset attempts that don't match role
+  return handleResponse(res, 404, 'no account found with this email');
         return handleResponse(res, 404, 'no account found with this email');
       }
     } else {
-      console.warn(`Unknown portal value provided to forgot-password: ${portal}`);
-      console.log(`[PWRESET] decision=reject-unknown-portal email=${email} portal=${portal}`);
-      return handleResponse(res, 200, genericMessage);
+  // Unknown portal -> generic response
+  return handleResponse(res, 200, genericMessage);
     }
 
     if (!process.env.JWT_SECRET) {
@@ -91,7 +84,7 @@ export const forgotPasswordLink = async (req, res) => {
     `;
 
     try {
-      console.log(`[PWRESET] decision=send-email email=${email} userId=${user.userid}`);
+  // send reset email (no debug logs)
       await sendEmail({ to: user.email, subject: 'Password reset', html });
     } catch (sendErr) {
       console.error('Failed to send password reset email:', sendErr?.message || sendErr);
