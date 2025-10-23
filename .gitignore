@@ -1,5 +1,9 @@
-
+# Ignore local backups and generated files
 /backups
 /uploads/backups
 /db/migrations/*.sql
 .env
+
+# Node modules should never be committed
+node_modules/
+
