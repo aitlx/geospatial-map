@@ -124,13 +124,16 @@ export const loginUser = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("token", token, {
+  // Cookie options - allow cross-site cookies in production (HTTPS)
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    };
+
+    res.cookie("token", token, cookieOptions);
 
     // log login
     await logService.add({
@@ -178,7 +181,6 @@ export const loginAdmin = async (req, res) => {
 
     const roleId = user.roleid || user.roleID;
     
-    // do not reveal account existence or role details to callers.
     if (![ROLES.ADMIN, ROLES.SUPERADMIN].includes(roleId)) {
       return handleResponse(res, 404, "Account not found");
     }
@@ -199,13 +201,15 @@ export const loginAdmin = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.cookie("token", token, {
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    };
+
+    res.cookie("token", token, cookieOptions);
 
     await logService.add({
       userId: user.userid,
@@ -241,7 +245,7 @@ export const logoutUser = async (req, res) => {
     res.clearCookie("token", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: "/"
     });
 
