@@ -97,12 +97,7 @@ export const addBarangayYield = async (req, res, next) => {
       newYieldRecord
     );
   } catch (err) {
-    // Log DB / error details for debugging in non-production environments
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('[debug] addBarangayYield error:', err?.message || err);
-      if (err?.detail) console.error('[debug] db detail:', err.detail);
-      if (err?.code) console.error('[debug] db code:', err.code);
-    }
+    console.error('addBarangayYield error:', err?.message || err);
     next(err);
   }
 };
@@ -153,7 +148,7 @@ export const fetchBarangayYieldById = async (req, res, next) => {
   }
 };
 
-// Update barangay yield record
+// update barangay yield record
 export const updateBarangayYield = async (req, res, next) => {
   const {
     barangay_id,
@@ -189,7 +184,7 @@ export const updateBarangayYield = async (req, res, next) => {
       normalizedMonth = parsed;
     }
 
-    // Normalize season for update if provided
+    // normalize season for update if provided
     let canonicalSeasonUpdate = season;
     if (season !== undefined) {
       const sNorm = typeof season === 'string' ? season.trim().toLowerCase() : null;
