@@ -50,8 +50,8 @@ export const addBarangayYield = async (req, res, next) => {
   let dbSeason = null;
   if (normalizedSeason) {
     const lower = normalizedSeason.toLowerCase();
-    if (lower === 'wet') { canonicalSeason = 'Wet'; dbSeason = 'wet'; }
-    else if (lower === 'dry') { canonicalSeason = 'Dry'; dbSeason = 'dry'; }
+    if (lower === 'wet') { canonicalSeason = 'Wet'; dbSeason = 'Wet'; }
+    else if (lower === 'dry') { canonicalSeason = 'Dry'; dbSeason = 'Dry'; }
   }
   if (!canonicalSeason) {
     return handleResponse(res, 400, false, "season must be either 'Wet' or 'Dry'");
@@ -64,7 +64,7 @@ export const addBarangayYield = async (req, res, next) => {
       crop_id,
       year,
       normalizedMonth,
-      dbSeason,
+      canonicalSeason,
       total_yield,
       total_area_planted_ha,
       yield_per_hectare,
