@@ -125,13 +125,16 @@ export const loginUser = async (req, res) => {
     );
 
   // Cookie options - allow cross-site cookies in production (HTTPS)
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    };
+const isProduction = process.env.NODE_ENV === "production" || process.env.HOSTED === "true";
+
+const cookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? "none" : "lax",
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
 
     res.cookie("token", token, cookieOptions);
 
