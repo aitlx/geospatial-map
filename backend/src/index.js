@@ -37,7 +37,7 @@ if (!fs.existsSync(uploadDir)) {
 
 // allowlist for CORS — production and local dev hosts
 const allowedOrigins = [
-  "https://guagua-geospatial-map.netlify.app",
+  "https://guagua-geospatial-map-r.netlify.app",
   "http://localhost:5173",
   "http://localhost:3000",
   "http://127.0.0.1:5173",
